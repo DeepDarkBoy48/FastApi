@@ -26,6 +26,10 @@ def get_subtitles(youtubeUrl: str):
         }
     }
 
+    # Check for cookies.txt to bypass bot detection
+    if os.path.exists("cookies.txt"):
+        ydl_opts['cookiefile'] = "cookies.txt"
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([youtubeUrl])
