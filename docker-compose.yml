@@ -1,0 +1,15 @@
+services:
+  fastapi-app:
+    build: .
+    container_name: my-fastapi-container
+    ports:
+      - "8000:8000"
+    networks:
+      - appnet
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    restart: always
+
+networks:
+  appnet:
+    external: true
