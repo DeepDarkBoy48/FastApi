@@ -8,6 +8,29 @@ import gemini
 
 app = FastAPI()
 
+@app.get("/fastapi/debug")
+def debug_info():
+    """Debug endpoint to check cookies file status"""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    cookies_path = os.path.join(base_dir, "cookies.txt")
+    
+    # 获取 cookies 文件信息
+    cookies_info = {}
+    if os.path.exists(cookies_path):
+        stat = os.stat(cookies_path)
+        cookies_info = {
+            "size_bytes": stat.st_size,
+            "modified_time": stat.st_mtime
+        }
+    
+    return {
+        "cookies_path": cookies_path,
+        "cookies_exists": os.path.exists(cookies_path),
+        "cookies_info": cookies_info,
+        "current_dir": os.getcwd(),
+        "files_in_app": os.listdir(base_dir)
+    }
+
 @app.get("/fastapi/getsubtitles")
 def get_subtitles(youtubeUrl: str):
     video_id = str(uuid.uuid4())
@@ -22,13 +45,15 @@ def get_subtitles(youtubeUrl: str):
         'outtmpl': output_template,
         'quiet': True,
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
     }
 
     # Check for cookies.txt to bypass bot detection
-    if os.path.exists("cookies.txt"):
-        ydl_opts['cookiefile'] = "cookies.txt"
+    # Use absolute path for Docker compatibility
+    cookies_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
+    if os.path.exists(cookies_path):
+        ydl_opts['cookiefile'] = cookies_path
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
