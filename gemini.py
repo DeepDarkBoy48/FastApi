@@ -361,9 +361,10 @@ def chat_service(request: ChatRequest) -> str:
     # However, the `google.genai` SDK `chats.create` creates a session. 
     # We can manually construct the `contents` list from history + new message.
     
-    contents = []
     for msg in request.history:
-        contents.append(types.Content(role=msg.role, parts=[types.Part(text=msg.content)]))
+        # 🔥 关键修复：将 'assistant' 转换为 Gemini 期望的 'model'
+        role = 'model' if msg.role == 'assistant' else msg.role
+        contents.append(types.Content(role=role, parts=[types.Part(text=msg.content)]))
     
     # Add user's new message
     contents.append(types.Content(role='user', parts=[types.Part(text=request.userMessage)]))
