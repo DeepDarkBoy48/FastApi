@@ -1,10 +1,17 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import yt_dlp
 import os
 import glob
 import uuid
 import gemini
+from schemas import (
+    AnalysisRequest, AnalysisResult,
+    LookupRequest, DictionaryResult,
+    WritingRequest, WritingResult,
+    ChatRequest, ChatResponse,
+    TTSRequest, TTSResponse
+)
 
 app = FastAPI()
 
@@ -58,3 +65,47 @@ def get_subtitles(youtubeUrl: str):
         
     except Exception as e:
         return {"error": str(e)}
+
+
+# --- SmashEnglish Endpoints ---
+
+@app.post("/fastapi/analyze", response_model=AnalysisResult)
+async def analyze_sentence(request: AnalysisRequest):
+    try:
+        result = gemini.analyze_sentence_service(request.sentence, request.modelLevel)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/fastapi/lookup", response_model=DictionaryResult)
+async def lookup_word(request: LookupRequest):
+    try:
+        result = gemini.lookup_word_service(request.word, request.modelLevel)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/fastapi/writing", response_model=WritingResult)
+async def evaluate_writing(request: WritingRequest):
+    try:
+        result = gemini.evaluate_writing_service(request.text, request.mode, request.modelLevel)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/fastapi/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    try:
+        response_text = gemini.chat_service(request)
+        return ChatResponse(response=response_text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/fastapi/tts", response_model=TTSResponse)
+async def tts(request: TTSRequest):
+    try:
+        audio_data = gemini.generate_speech_service(request.text)
+        return TTSResponse(audioData=audio_data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
