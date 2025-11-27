@@ -3,7 +3,7 @@ from typing import List, Optional, Literal, Union
 
 # --- Shared Enums ---
 ModelLevel = Literal['mini', 'quick', 'deep']
-WritingMode = Literal['fix', 'ielts-5.5', 'ielts-6.0', 'ielts-6.5', 'ielts-7.0', 'ielts-7.5', 'ielts-8.0']
+WritingMode = Literal['fix']
 ContextType = Literal['sentence', 'word', 'writing']
 
 # --- Analysis Schemas ---

@@ -68,9 +68,9 @@ def get_model_config(level: ModelLevel):
     if level == 'mini':
         return 'gemini-2.5-flash-lite', 0
     elif level == 'quick':
-        return 'gemini-2.5-flash-lite', 500
+        return 'gemini-2.5-flash-lite', 250
     elif level == 'deep':
-        return 'gemini-2.5-flash-lite', 1000
+        return 'gemini-2.5-flash-lite', 500
     else:
         return 'gemini-2.5-flash-lite', 0
 
@@ -95,7 +95,10 @@ async def analyze_sentence_service(sentence: str, model_level: ModelLevel) -> An
           - 'keep': Unchanged text.
 
     2.  **Macro Analysis (宏观结构)**:
-        - Identify Core Pattern (句型结构). Format: "English Pattern (中文名称)". Example: "S + V + O (主谓宾)".
+        - Identify Core Pattern (句型结构). Format: "English Pattern (中文名称)". 
+          - **CRITICAL**: Use HIGH-LEVEL patterns only (S+V, S+V+O, S+V+P, S+V+IO+DO, S+V+O+OC). 
+          - Do NOT include "Modal Verb", "Auxiliary", or specific verb types in the pattern. 
+          - Example: "S + V + O (主谓宾)", NOT "S + Modal + V + O".
         - Identify Core Tense (核心时态). Format: "English Tense (中文名称)". Example: "Present Simple (一般现在时)".
 
     3.  **Chunking (意群分块)**:
@@ -200,60 +203,13 @@ async def lookup_word_service(word: str, model_level: ModelLevel) -> DictionaryR
 async def evaluate_writing_service(text: str, mode: WritingMode, model_level: ModelLevel) -> WritingResult:
     model, thinking_budget = get_model_config(model_level)
 
-    mode_instructions = ""
-    if mode == 'fix':
-        mode_instructions = """
-        **MODE: BASIC CORRECTION (基础纠错)**
-        - Target: General accuracy.
-        - Task: Focus STRICTLY on correcting grammar, spelling, punctuation, and serious awkwardness.
-        - Do NOT change style, tone, or vocabulary unless it is incorrect.
-        - Keep the output very close to the original, only fixing errors.
-        """
-    elif mode == 'ielts-5.5':
-        mode_instructions = """
-        **MODE: IELTS BAND 5.5 (Modest User)**
-        - Target Level: Partial command of the language.
-        - Task: Correct all basic errors. Ensure the overall meaning is clear.
-        - Style: Keep vocabulary simple but correct. Avoid complex structures if they risk error.
-        - Feedback focus: Basic grammar and clarity.
-        """
-    elif mode == 'ielts-6.0':
-        mode_instructions = """
-        **MODE: IELTS BAND 6.0 (Competent User)**
-        - Target Level: Generally effective command.
-        - Task: Use a mix of simple and complex sentence forms. Correct errors.
-        - Style: Use adequate vocabulary. Ensure coherence.
-        """
-    elif mode == 'ielts-6.5':
-        mode_instructions = """
-        **MODE: IELTS BAND 6.5 (Between Competent and Good)**
-        - Target Level: Stronger competence.
-        - Task: Introduce more complex structures. Enhance vocabulary slightly beyond basic.
-        - Style: Improve flow and linking words.
-        """
-    elif mode == 'ielts-7.0':
-        mode_instructions = """
-        **MODE: IELTS BAND 7.0 (Good User)**
-        - Target Level: Operational command, occasional inaccuracies.
-        - Task: Use a variety of complex structures. Use less common lexical items.
-        - Style: Academic and formal. Show awareness of style and collocation.
-        """
-    elif mode == 'ielts-7.5':
-        mode_instructions = """
-        **MODE: IELTS BAND 7.5 (Very Good User)**
-        - Target Level: High accuracy.
-        - Task: Sophisticated control of vocabulary and grammar. Minimize errors to very occasional slips.
-        - Style: Highly polished, natural, and academic.
-        """
-    elif mode == 'ielts-8.0':
-        mode_instructions = """
-        **MODE: IELTS BAND 8.0 (Expert-like User)**
-        - Target Level: Fully operational command.
-        - Task: Use a wide range of vocabulary fluently and flexibly to convey precise meanings.
-        - Style: Skillful use of uncommon lexical items. Error-free sentences. Native-like flow.
-        """
-    else:
-        mode_instructions = "**MODE: BASIC CORRECTION**"
+    mode_instructions = """
+    **MODE: BASIC CORRECTION (基础纠错)**
+    - Target: General accuracy.
+    - Task: Focus STRICTLY on correcting grammar, spelling, punctuation, and serious awkwardness.
+    - Do NOT change style, tone, or vocabulary unless it is incorrect.
+    - Keep the output very close to the original, only fixing errors.
+    """
 
     prompt = f"""
     Act as a professional English Editor and IELTS Examiner.
