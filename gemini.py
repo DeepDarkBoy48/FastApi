@@ -34,8 +34,8 @@ class SubtitleItem(BaseModel):
 class SubtitlesResponse(BaseModel):
     subtitles: List[SubtitleItem]
 
-def get_response(prompt):
-    response = client.models.generate_content(
+async def get_response(prompt):
+    response = await client.aio.models.generate_content(
         model="gemini-2.5-flash",
         contents=prompt,
         config=types.GenerateContentConfig(
@@ -74,7 +74,7 @@ def get_model_config(level: ModelLevel):
     else:
         return 'gemini-2.5-flash', 0
 
-def analyze_sentence_service(sentence: str, model_level: ModelLevel) -> AnalysisResult:
+async def analyze_sentence_service(sentence: str, model_level: ModelLevel) -> AnalysisResult:
     model, thinking_budget = get_model_config(model_level)
     
     prompt = f"""
@@ -120,7 +120,7 @@ def analyze_sentence_service(sentence: str, model_level: ModelLevel) -> Analysis
     """
 
     try:
-        response = client.models.generate_content(
+        response = await client.aio.models.generate_content(
             model=model,
             contents=prompt,
             config=types.GenerateContentConfig(
@@ -146,7 +146,7 @@ def analyze_sentence_service(sentence: str, model_level: ModelLevel) -> Analysis
         raise Exception("无法分析该句子。请检查网络或 API Key 设置。")
 
 
-def lookup_word_service(word: str, model_level: ModelLevel) -> DictionaryResult:
+async def lookup_word_service(word: str, model_level: ModelLevel) -> DictionaryResult:
     model, thinking_budget = get_model_config(model_level)
 
     prompt = f"""
@@ -183,7 +183,7 @@ def lookup_word_service(word: str, model_level: ModelLevel) -> DictionaryResult:
     """
 
     try:
-        response = client.models.generate_content(
+        response = await client.aio.models.generate_content(
             model=model,
             contents=prompt,
             config=types.GenerateContentConfig(
@@ -202,7 +202,7 @@ def lookup_word_service(word: str, model_level: ModelLevel) -> DictionaryResult:
         raise Exception("无法查询该单词，请重试。")
 
 
-def evaluate_writing_service(text: str, mode: WritingMode, model_level: ModelLevel) -> WritingResult:
+async def evaluate_writing_service(text: str, mode: WritingMode, model_level: ModelLevel) -> WritingResult:
     model, thinking_budget = get_model_config(model_level)
 
     mode_instructions = ""
@@ -306,7 +306,7 @@ def evaluate_writing_service(text: str, mode: WritingMode, model_level: ModelLev
         segments: List[WritingResult.model_fields['segments'].annotation]
 
     try:
-        response = client.models.generate_content(
+        response = await client.aio.models.generate_content(
             model=model,
             contents=prompt,
             config=types.GenerateContentConfig(
@@ -329,7 +329,7 @@ def evaluate_writing_service(text: str, mode: WritingMode, model_level: ModelLev
         raise Exception("写作分析失败，请检查网络或稍后再试。")
 
 
-def chat_service(request: ChatRequest) -> str:
+async def chat_service(request: ChatRequest) -> str:
     context_instruction = ""
     if request.contextType == 'sentence':
          context_instruction = f'**当前正在分析的句子**: "{request.contextContent or "用户暂未输入句子"}"。'
@@ -371,7 +371,7 @@ def chat_service(request: ChatRequest) -> str:
     contents.append(types.Content(role='user', parts=[types.Part(text=request.userMessage)]))
 
     try:
-        response = client.models.generate_content(
+        response = await client.aio.models.generate_content(
             model='gemini-2.5-flash',
             contents=contents,
             config=types.GenerateContentConfig(
@@ -384,9 +384,10 @@ def chat_service(request: ChatRequest) -> str:
         raise Exception("聊天服务暂时不可用。")
 
 
-def generate_speech_service(text: str) -> str:
+async def generate_speech_service(text: str) -> str:
     try:
-        response = client.models.generate_content(
+        # Use a model that supports audio generation (e.g., gemini-2.0-flash-exp)
+        response = await client.aio.models.generate_content(
             model="gemini-2.5-flash-preview-tts",
             contents=text,
             config=types.GenerateContentConfig(
@@ -401,8 +402,6 @@ def generate_speech_service(text: str) -> str:
 
         # Accessing audio data from response
         # The SDK returns binary data in candidates[0].content.parts[0].inline_data.data
-        # But `response.text` won't work.
-        # We need to access the part directly.
         
         if not response.candidates or not response.candidates[0].content.parts:
              raise ValueError("No content returned")

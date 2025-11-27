@@ -16,7 +16,7 @@ from schemas import (
 app = FastAPI()
 
 @app.get("/fastapi/getsubtitles")
-def get_subtitles(youtubeUrl: str):
+async def get_subtitles(youtubeUrl: str):
     video_id = str(uuid.uuid4())
     temp_dir = "/tmp"
     output_template = os.path.join(temp_dir, f"{video_id}.%(ext)s")
@@ -55,7 +55,7 @@ def get_subtitles(youtubeUrl: str):
             content = f.read()
             
         #use gemini to format
-        formatted_content = gemini.get_response(content)
+        formatted_content = await gemini.get_response(content)
 
         # Clean up
         for f in files:
@@ -72,7 +72,7 @@ def get_subtitles(youtubeUrl: str):
 @app.post("/fastapi/analyze", response_model=AnalysisResult)
 async def analyze_sentence(request: AnalysisRequest):
     try:
-        result = gemini.analyze_sentence_service(request.sentence, request.modelLevel)
+        result = await gemini.analyze_sentence_service(request.sentence, request.modelLevel)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -80,7 +80,7 @@ async def analyze_sentence(request: AnalysisRequest):
 @app.post("/fastapi/lookup", response_model=DictionaryResult)
 async def lookup_word(request: LookupRequest):
     try:
-        result = gemini.lookup_word_service(request.word, request.modelLevel)
+        result = await gemini.lookup_word_service(request.word, request.modelLevel)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -88,7 +88,7 @@ async def lookup_word(request: LookupRequest):
 @app.post("/fastapi/writing", response_model=WritingResult)
 async def evaluate_writing(request: WritingRequest):
     try:
-        result = gemini.evaluate_writing_service(request.text, request.mode, request.modelLevel)
+        result = await gemini.evaluate_writing_service(request.text, request.mode, request.modelLevel)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -96,7 +96,7 @@ async def evaluate_writing(request: WritingRequest):
 @app.post("/fastapi/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     try:
-        response_text = gemini.chat_service(request)
+        response_text = await gemini.chat_service(request)
         return ChatResponse(response=response_text)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -104,7 +104,7 @@ async def chat(request: ChatRequest):
 @app.post("/fastapi/tts", response_model=TTSResponse)
 async def tts(request: TTSRequest):
     try:
-        audio_data = gemini.generate_speech_service(request.text)
+        audio_data = await gemini.generate_speech_service(request.text)
         return TTSResponse(audioData=audio_data)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
