@@ -8,37 +8,37 @@ ContextType = Literal['sentence', 'word', 'writing']
 
 # --- Analysis Schemas ---
 class AnalysisChunk(BaseModel):
-    text: str
-    grammarDescription: str
-    partOfSpeech: str
-    role: str
+    text: str = Field(description="The text content of this chunk.")
+    grammarDescription: str = Field(description="Grammatical description of this chunk (e.g., 'Prepositional Phrase', 'Noun Phrase'). MUST be in Simplified Chinese.")
+    partOfSpeech: str = Field(description="The part of speech for the head of this chunk (e.g., 'noun', 'verb').")
+    role: str = Field(description="The grammatical role of this chunk in the sentence (e.g., 'Subject', 'Predicate', 'Object'). MUST be in Simplified Chinese.")
 
 class DetailedToken(BaseModel):
-    text: str
-    partOfSpeech: str
-    role: str
-    explanation: str
-    meaning: str
+    text: str = Field(description="The specific word or phrase being analyzed.")
+    partOfSpeech: str = Field(description="Part of speech of the token.")
+    role: str = Field(description="Grammatical role of the token.")
+    explanation: str = Field(description="Detailed explanation of the token's usage, form, or function in this specific context. MUST be in Simplified Chinese.")
+    meaning: str = Field(description="The meaning of the token in this specific context. MUST be in Simplified Chinese.")
 
 class CorrectionChange(BaseModel):
-    type: Literal['add', 'remove', 'keep']
-    text: str
+    type: Literal['add', 'remove', 'keep'] = Field(description="Type of change: 'add' (new text), 'remove' (delete text), or 'keep' (unchanged).")
+    text: str = Field(description="The text content associated with the change.")
 
 class Correction(BaseModel):
-    original: str
-    corrected: str
-    errorType: str
-    reason: str
-    changes: List[CorrectionChange]
+    original: str = Field(description="The original English sentence with errors.")
+    corrected: str = Field(description="The corrected English sentence.")
+    errorType: str = Field(description="General category of the error (e.g., 'Grammar', 'Spelling').")
+    reason: str = Field(description="Explanation of why the correction was made. MUST be in Simplified Chinese.")
+    changes: List[CorrectionChange] = Field(description="List of specific changes (diff) between original and corrected sentences.")
 
 class AnalysisResult(BaseModel):
-    chunks: List[AnalysisChunk]
-    detailedTokens: List[DetailedToken]
-    chineseTranslation: str
-    englishSentence: str
-    correction: Optional[Correction] = None
-    sentencePattern: Optional[str] = None
-    mainTense: Optional[str] = None
+    chunks: List[AnalysisChunk] = Field(description="The sentence broken down into rhythmic/sense chunks.")
+    detailedTokens: List[DetailedToken] = Field(description="Detailed analysis of key words and phrases in the sentence.")
+    chineseTranslation: str = Field(description="Natural translation of the full sentence into Simplified Chinese.")
+    englishSentence: str = Field(description="The English sentence being analyzed (corrected version if applicable).")
+    correction: Optional[Correction] = Field(default=None, description="Correction details if the original sentence had errors.")
+    sentencePattern: Optional[str] = Field(default=None, description="The core sentence pattern (e.g., 'S+V+O').")
+    mainTense: Optional[str] = Field(default=None, description="The primary tense of the sentence (e.g., 'Present Simple').")
 
 class AnalysisRequest(BaseModel):
     sentence: str

@@ -66,7 +66,7 @@ async def get_response(prompt):
 
 def get_model_config(level: ModelLevel):
     if level == 'mini':
-        return 'gemini-2.5-flash-lite', 0
+        return 'gemini-2.5-flash', 200
     elif level == 'quick':
         return 'gemini-2.5-flash-lite', 250
     elif level == 'deep':
@@ -95,15 +95,19 @@ async def analyze_sentence_service(sentence: str, model_level: ModelLevel) -> An
           - 'keep': Unchanged text.
 
     2.  **Macro Analysis (宏观结构)**:
-        - Identify Core Pattern (句型结构). Format: "English Pattern (中文名称)". 
-          - **CRITICAL**: Use HIGH-LEVEL patterns only (S+V, S+V+O, S+V+P, S+V+IO+DO, S+V+O+OC). 
-          - Do NOT include "Modal Verb", "Auxiliary", or specific verb types in the pattern. 
+        - **Sentence Pattern (句型结构)**: Identify the high-level pattern.
+          - Format: "English Pattern (中文名称)".
+          - **CRITICAL**: Use ONLY these basic patterns: S+V, S+V+O, S+V+P, S+V+IO+DO, S+V+O+OC.
+          - Do NOT include "Modal Verb", "Auxiliary", or specific verb types in the pattern.
           - Example: "S + V + O (主谓宾)", NOT "S + Modal + V + O".
-        - Identify Core Tense (核心时态). Format: "English Tense (中文名称)". Example: "Present Simple (一般现在时)".
+        - **Main Tense (核心时态)**: Identify the primary tense.
+          - Format: "English Tense (中文名称)". 
+          - Example: "Present Simple (一般现在时)".
 
     3.  **Chunking (意群分块)**:
-        - Group words into sense groups (rhythm chunks).
-        - Modifiers with heads, prepositions with objects, verb phrases together.
+        - Break the sentence into natural rhythmic/sense groups.
+        - **grammarDescription**: Describe the grammatical nature of the chunk (e.g., "Noun Phrase", "Prepositional Phrase"). **MUST BE CHINESE**.
+        - **role**: Describe the syntactic role (e.g., "Subject", "Adverbial"). **MUST BE CHINESE**.
 
     4.  **Detailed Analysis (逐词详解)**:
         - **Core Rule - Fixed Phrases**:
@@ -113,6 +117,9 @@ async def analyze_sentence_service(sentence: str, model_level: ModelLevel) -> An
         - **Explanation (解释)**: **MUST BE IN CHINESE**. Explain the function and form.
           - Example: "过去分词，与 has 构成现在完成时，表示动作已完成".
         - **Meaning (含义)**: Chinese translation in context.
+
+    5.  **Translation (整句翻译)**:
+        - Provide a natural, fluent translation of the (corrected) sentence into Simplified Chinese.
 
     Return strictly JSON.
     """
