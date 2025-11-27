@@ -66,57 +66,52 @@ async def get_response(prompt):
 
 def get_model_config(level: ModelLevel):
     if level == 'mini':
-        return 'gemini-2.5-flash', 0
+        return 'gemini-2.5-flash-lite', 0
     elif level == 'quick':
-        return 'gemini-2.5-flash', 500
+        return 'gemini-2.5-flash-lite', 500
     elif level == 'deep':
-        return 'gemini-2.5-flash', 2000
+        return 'gemini-2.5-flash-lite', 1000
     else:
-        return 'gemini-2.5-flash', 0
+        return 'gemini-2.5-flash-lite', 0
 
 async def analyze_sentence_service(sentence: str, model_level: ModelLevel) -> AnalysisResult:
     model, thinking_budget = get_model_config(model_level)
     
     prompt = f"""
-    你是一位精通语言学和英语教学的专家 AI。请分析以下英语句子： "{sentence}"。
-    目标受众是正在学习英语的学生，因此分析需要**清晰、准确且具有教育意义**。
+    **CRITICAL RULE**: You are a linguistic expert teaching Chinese students. 
+    ALL explanations, descriptions, and analysis text MUST be in **Simplified Chinese (简体中文)**.
+    Only the English sentence itself and specific English terms being analyzed should remain in English.
+
+    Please analyze the following English sentence: "{sentence}"
 
     **Processing Steps (Thinking Process):**
-    1.  **Grammar Check (纠错)**: 
-        - 仔细检查句子是否有语法错误。
-        - 如果有错，创建一个修正后的版本。
-        - **注意**：后续的所有分析（chunks, detailedTokens, structure）必须基于**修正后(Corrected)** 的句子进行。
-        - **Diff Generation**: 生成 'changes' 数组时，必须是严格的文本差异对比 (diff)。
-          - 'remove': 仅包含被删除的原文片段，**绝对不要**包含 "->" 符号或 "change x to y" 这样的描述。例如原句是 "i go"，修正为 "I go"，则 'remove' text 为 "i"，'add' text 为 "I"。
-          - 'add': 仅包含新加入的片段。
-          - 'keep': 保持不变的部分。
+    1.  **Grammar Check (语法检查)**: 
+        - Check for grammar errors.
+        - If found, create a corrected version.
+        - **Note**: All subsequent analysis (chunks, detailedTokens, structure) must be based on the **Corrected** sentence.
+        - **Diff Generation**:
+          - 'remove': Text to be removed (exact substring).
+          - 'add': New text to add.
+          - 'keep': Unchanged text.
 
     2.  **Macro Analysis (宏观结构)**:
-        - 识别核心句型结构 (Pattern)，**必须包含中文翻译**。格式要求："English Pattern (中文名称)"。例如："S + V + O (主谓宾)"。
-        - 识别核心时态 (Tense)，**必须包含中文翻译**。格式要求："English Tense (中文名称)"。例如："Present Simple (一般现在时)"。
+        - Identify Core Pattern (句型结构). Format: "English Pattern (中文名称)". Example: "S + V + O (主谓宾)".
+        - Identify Core Tense (核心时态). Format: "English Tense (中文名称)". Example: "Present Simple (一般现在时)".
 
-    3.  **Chunking (可视化意群分块)**:
-        - 目标是展示句子的“节奏”和“意群”(Sense Groups)。
-        - **原则**：
-          - 所有的修饰语应与其中心词在一起（例如 "The very tall man" 是一个块）。
-          - 介词短语通常作为一个整体（例如 "in the morning" 是一个块）。
-          - 谓语动词部分合并（例如 "have been waiting" 是一个块）。
-          - 不定式短语合并（例如 "to go home" 是一个块）。
+    3.  **Chunking (意群分块)**:
+        - Group words into sense groups (rhythm chunks).
+        - Modifiers with heads, prepositions with objects, verb phrases together.
 
-    4.  **Detailed Analysis (逐词/短语详解)**:
-        - **核心原则 - 固定搭配优先**：
-          - 遇到短语动词 (phrasal verbs)、固定习语 (idioms)、介词搭配 (collocations) 时，**必须**将它们作为一个整体 Token，**绝对不要拆分**。
-          - 例如："look forward to", "take care of", "a cup of", "depend on"。
-          - **特别处理可分离短语动词 (Separable Phrasal Verbs)**：
-            - 如果遇到像 "pop us back", "turn it on" 这样动词与小品词被代词隔开的情况，请务必**识别出其核心短语动词**（如 "pop back"）。
-            - 在详细解释 (explanation) 中，**必须**明确指出该词属于短语动词 "pop back" (或相应短语)，并解释该短语动词的含义，而不仅仅是单个单词的意思。
-            - 示例：针对 "pop us back"，在解释 "pop" 时，应说明 "pop ... back 是短语动词，意为迅速回去/放回"。
-        - **解释 (Explanation)**：
-          - 不要只给一个词性标签。要解释它在句子中的**功能**和**为什么用这种形式**。
-          - 例如：不要只写"过去分词"，要写"过去分词，与 has 构成现在完成时，表示动作已完成"。
-        - **含义 (Meaning)**：提供在当前语境下的中文含义。
+    4.  **Detailed Analysis (逐词详解)**:
+        - **Core Rule - Fixed Phrases**:
+          - Phrasal verbs, idioms, collocations MUST be treated as a single Token. DO NOT SPLIT.
+          - Example: "look forward to", "take care of".
+          - **Separable Phrasal Verbs**: If "pop us back", identify "pop back".
+        - **Explanation (解释)**: **MUST BE IN CHINESE**. Explain the function and form.
+          - Example: "过去分词，与 has 构成现在完成时，表示动作已完成".
+        - **Meaning (含义)**: Chinese translation in context.
 
-    请返回 JSON 格式数据。
+    Return strictly JSON.
     """
 
     try:
@@ -372,7 +367,7 @@ async def chat_service(request: ChatRequest) -> str:
 
     try:
         response = await client.aio.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-2.5-flash-lite',
             contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction
