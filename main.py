@@ -72,7 +72,7 @@ async def get_subtitles(youtubeUrl: str):
 @app.post("/fastapi/analyze", response_model=AnalysisResult)
 async def analyze_sentence(request: AnalysisRequest):
     try:
-        result = await gemini.analyze_sentence_service(request.sentence, request.modelLevel)
+        result = await gemini.analyze_sentence_service(request.sentence)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -80,7 +80,7 @@ async def analyze_sentence(request: AnalysisRequest):
 @app.post("/fastapi/lookup", response_model=DictionaryResult)
 async def lookup_word(request: LookupRequest):
     try:
-        result = await gemini.lookup_word_service(request.word, request.modelLevel)
+        result = await gemini.lookup_word_service(request.word)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -88,7 +88,7 @@ async def lookup_word(request: LookupRequest):
 @app.post("/fastapi/writing", response_model=WritingResult)
 async def evaluate_writing(request: WritingRequest):
     try:
-        result = await gemini.evaluate_writing_service(request.text, request.mode, request.modelLevel)
+        result = await gemini.evaluate_writing_service(request.text, request.mode)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

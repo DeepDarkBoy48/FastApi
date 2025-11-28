@@ -2,7 +2,6 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Literal, Union
 
 # --- Shared Enums ---
-ModelLevel = Literal['mini', 'quick', 'deep']
 WritingMode = Literal['fix']
 ContextType = Literal['sentence', 'word', 'writing']
 
@@ -42,7 +41,6 @@ class AnalysisResult(BaseModel):
 
 class AnalysisRequest(BaseModel):
     sentence: str
-    modelLevel: ModelLevel = 'mini'
 
 
 # --- Dictionary Schemas ---
@@ -71,7 +69,6 @@ class DictionaryResult(BaseModel):
 
 class LookupRequest(BaseModel):
     word: str
-    modelLevel: ModelLevel = 'mini'
 
 
 # --- Writing Schemas ---
@@ -90,7 +87,6 @@ class WritingResult(BaseModel):
 class WritingRequest(BaseModel):
     text: str
     mode: WritingMode
-    modelLevel: ModelLevel = 'mini'
 
 
 # --- Chat Schemas ---
