@@ -9,17 +9,6 @@ sys.path.append(os.getcwd())
 import gemini
 from schemas import AnalysisRequest, ModelLevel
 
-async def test_tts():
-    print("Testing TTS...")
-    try:
-        audio_data = await gemini.generate_speech_service("Hello, this is a test.")
-        if audio_data:
-            print("TTS Success: Audio data received (length: {})".format(len(audio_data)))
-        else:
-            print("TTS Failed: No audio data received")
-    except Exception as e:
-        print(f"TTS Error: {e}")
-
 async def test_analyze():
     print("Testing Analyze...")
     try:
@@ -34,7 +23,6 @@ async def main():
         print("Error: GEMINI_API_KEY not found in environment.")
         return
 
-    await test_tts()
     await test_analyze()
 
 if __name__ == "__main__":

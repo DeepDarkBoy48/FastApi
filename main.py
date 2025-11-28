@@ -9,8 +9,7 @@ from schemas import (
     AnalysisRequest, AnalysisResult,
     LookupRequest, DictionaryResult,
     WritingRequest, WritingResult,
-    ChatRequest, ChatResponse,
-    TTSRequest, TTSResponse
+    ChatRequest, ChatResponse
 )
 
 app = FastAPI()
@@ -98,14 +97,6 @@ async def chat(request: ChatRequest):
     try:
         response_text = await gemini.chat_service(request)
         return ChatResponse(response=response_text)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/fastapi/tts", response_model=TTSResponse)
-async def tts(request: TTSRequest):
-    try:
-        audio_data = await gemini.generate_speech_service(request.text)
-        return TTSResponse(audioData=audio_data)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

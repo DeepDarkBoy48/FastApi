@@ -103,12 +103,3 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
 
-
-# --- TTS Schemas ---
-class TTSRequest(BaseModel):
-    text: str
-
-class TTSResponse(BaseModel):
-    audioData: str  # Base64 encoded audio
-
-

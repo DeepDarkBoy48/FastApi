@@ -4,13 +4,12 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 import os
 import json
-import base64
 from dotenv import load_dotenv
 from schemas import (
     AnalysisResult, AnalysisRequest,
     DictionaryResult, LookupRequest,
     WritingResult, WritingRequest, WritingMode,
-    ChatRequest, TTSRequest, TTSResponse
+    ChatRequest
 )
 
 try:
@@ -330,36 +329,3 @@ async def chat_service(request: ChatRequest) -> str:
         print(f"Chat API Error: {e}")
         raise Exception("聊天服务暂时不可用。")
 
-
-async def generate_speech_service(text: str) -> str:
-    try:
-        # Use a model that supports audio generation (e.g., gemini-2.0-flash-exp)
-        response = await client.aio.models.generate_content(
-            model="gemini-2.5-flash-preview-tts",
-            contents=text,
-            config=types.GenerateContentConfig(
-                response_modalities=['AUDIO'],
-                speech_config=types.SpeechConfig(
-                    voice_config=types.VoiceConfig(
-                        prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name='Kore')
-                    )
-                )
-            )
-        )
-
-        # Accessing audio data from response
-        # The SDK returns binary data in candidates[0].content.parts[0].inline_data.data
-        
-        if not response.candidates or not response.candidates[0].content.parts:
-             raise ValueError("No content returned")
-             
-        part = response.candidates[0].content.parts[0]
-        if not part.inline_data or not part.inline_data.data:
-             raise ValueError("No audio data returned")
-             
-        # inline_data.data is bytes. We need to return base64 string for JSON response.
-        return base64.b64encode(part.inline_data.data).decode('utf-8')
-
-    except Exception as e:
-        print(f"TTS API Error: {e}")
-        raise Exception("语音生成失败。")
