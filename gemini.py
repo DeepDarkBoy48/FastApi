@@ -65,7 +65,7 @@ async def get_response(prompt):
 
 def get_model_config():
     # Default to a balanced configuration
-    return 'gemini-2.5-flash', 1000
+    return 'gemini-2.5-flash', 200
 
 async def analyze_sentence_service(sentence: str) -> AnalysisResult:
     model, thinking_budget = get_model_config()
