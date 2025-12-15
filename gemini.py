@@ -223,8 +223,8 @@ async def evaluate_writing_service(text: str, mode: WritingMode) -> WritingResul
     - If you changed, added, or removed something, create a segment of type 'change'.
       - 'text': The NEW/IMPROVED text.
       - 'original': The ORIGINAL text that was replaced (or empty string if added).
-      - 'reason': A brief explanation in Chinese.
-      - 'category': One of 'grammar', 'vocabulary', 'style', 'punctuation', 'collocation' | 'punctuation'.
+      - 'reason': A specific, educational explanation in Chinese. You MUST explain WHY the original was incorrect using grammatical terms (e.g., "缺少介词 'to'", "主谓不一致", "时态错误"). Avoid vague phrases like "更自然的表达" unless it is purely stylistic.
+      - 'category': One of 'grammar', 'vocabulary', 'style', 'punctuation', 'collocation'.
     - **CRITICAL - PARAGRAPH PRESERVATION**: 
       - You MUST preserve all paragraph breaks and newlines (\\n) from the original text exactly as they are.
       - When you encounter a newline in the original text, return it as a separate segment: {{ "text": "\\n", "type": "unchanged" }}.
