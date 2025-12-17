@@ -35,7 +35,7 @@ class SubtitlesResponse(BaseModel):
 
 async def get_response(prompt):
     response = await client.aio.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3-flash-preview",
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -65,7 +65,7 @@ async def get_response(prompt):
 
 def get_model_config():
     # Default to a balanced configuration
-    return 'gemini-2.5-flash', 200
+    return 'gemini-3-flash-preview', 200
 
 async def analyze_sentence_service(sentence: str) -> AnalysisResult:
     model, thinking_budget = get_model_config()
@@ -318,7 +318,7 @@ async def chat_service(request: ChatRequest) -> str:
 
     try:
         response = await client.aio.models.generate_content(
-            model='gemini-2.5-flash-lite',
+            model='gemini-3-flash-preview',
             contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction
