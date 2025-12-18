@@ -45,16 +45,16 @@ class AnalysisRequest(BaseModel):
 
 # --- Dictionary Schemas ---
 class DictionaryDefinition(BaseModel):
-    meaning: str
-    explanation: str
+    meaning: str = Field(description="Concise meaning in Simplified Chinese.")
+    explanation: str = Field(description="Detailed explanation in Simplified Chinese. MUST NOT be English.")
     example: str
-    exampleTranslation: str
+    exampleTranslation: str = Field(description="Translation of the example in Simplified Chinese.")
 
 class DictionaryCollocation(BaseModel):
     phrase: str
-    meaning: str
+    meaning: str = Field(description="Meaning of the collocation in Simplified Chinese.")
     example: str
-    exampleTranslation: str
+    exampleTranslation: str = Field(description="Translation of the example in Simplified Chinese.")
 
 class DictionaryEntry(BaseModel):
     partOfSpeech: str

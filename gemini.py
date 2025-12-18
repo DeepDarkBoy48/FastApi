@@ -179,13 +179,15 @@ async def lookup_word_service(word: str) -> DictionaryResult:
        - Provide a concise string like "Rank 1029" or "Top 2000".
 
     **STEP 3: Structure**
-    - Definitions: Clear, simple English explanation + Concise Chinese meaning.
+    - Definitions: Provide a clear and concise meaning in **Simplified Chinese**. 
+    - Explanation: Provide a detailed explanation of the usage, nuances, or grammatical context **EXCLUSIVELY in Simplified Chinese**. (DO NOT provide English explanations).
     - Examples: Must be natural, modern, and relevant to exam contexts or daily life.
+    - Example Translation: Provide a natural translation of the example in **Simplified Chinese**.
     
     **STEP 4: Collocations & Fixed Phrases**
     - Identify 3-5 high-frequency collocations, idioms, or fixed phrases containing this word.
     - Prioritize phrases useful for IELTS/TOEFL writing or speaking.
-    - Provide meaning and a sentence example for each.
+    - Provide the meaning in **Simplified Chinese** and a sentence example with its Chinese translation for each.
 
     Structure the response by Part of Speech (POS).
     Return strictly JSON.
