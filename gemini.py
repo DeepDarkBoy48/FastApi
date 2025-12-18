@@ -39,6 +39,7 @@ def get_model_config():
     # Default to a balanced configuration
     return 'gemini-3-flash-preview', 'low'
 
+# --- Subtitle Editor agent ---
 async def get_response(prompt):
     model,thinking_level = get_model_config()
     response = await client.aio.models.generate_content(
@@ -49,7 +50,7 @@ async def get_response(prompt):
             response_schema=SubtitlesResponse,
             thinking_config=types.ThinkingConfig(
                 include_thoughts=True,
-                thinking_level= thinking_level
+                thinking_level= "minimal"
             ),
             system_instruction="""
                     # Role
@@ -300,6 +301,7 @@ async def evaluate_writing_service(text: str, mode: WritingMode) -> WritingResul
 
 
 async def chat_service(request: ChatRequest) -> str:
+    model, thinking_level = get_model_config()
     context_instruction = ""
     if request.contextType == 'sentence':
          context_instruction = f'**当前正在分析的句子**: "{request.contextContent or "用户暂未输入句子"}"。'
@@ -309,19 +311,22 @@ async def chat_service(request: ChatRequest) -> str:
          context_instruction = f'**当前正在润色的文章**: "{request.contextContent or "用户暂未输入文章"}"。'
 
     system_instruction = f"""
-        你是一个热情、专业的英语学习助教。
+        你是一个热情、专业的英语学习助教。你现在拥有访问 **Google 搜索** 的能力，可以提供最前沿、最地道的英语用法参考。
         
         {context_instruction}
         
         **你的任务**：
         1. 解答用户关于英语语法、单词用法、句子结构或词汇辨析的问题。
-        2. **始终使用中文**回答。
-        3. 使用 **Markdown** 格式来美化你的回答，使其清晰易读：
+        2. **利用实时搜索**：如果用户询问的是最新的网络流行语、俚语、或者涉及特定文化/时事背景的英语表达，请务必使用搜索功能来获取最准确、最新的解释和实例。
+        3. **提供地道例句**：在解释词汇时，可以主动通过搜索从权威媒体（如 BBC, NYT, The Economist）中提取真实例句，帮助用户理解该词在现代英语中的实际应用。
+        4. **引用来源**：如果你的回答引用了搜索结果，请根据搜索元数据提供清晰的来源链接（格式如 [标题](链接)），增加回答的可信度。
+        5. **始终使用中文**回答。
+        6. 使用 **Markdown** 格式来美化你的回答，使其清晰易读：
            - 使用 **加粗** 来强调重点单词或语法术语。
            - 使用列表（1. 或 -）来分点解释。
            - 适当分段。
-        4. 语气要鼓励、积极，像一位耐心的老师。
-        5. **特殊指令**：如果用户询问类似 "pop us back" 这样的短语，请解释这是一种口语表达，核心是短语动词 "pop back" (迅速回去)，"us" 是宾语。
+        7. 语气要鼓励、积极，像一位耐心的老师。
+        8. **特殊指令**：如果用户询问类似 "pop us back" 这样的短语，请解释这是一种口语表达，核心是短语动词 "pop back" (迅速回去)，"us" 是宾语。
     """
     
     # Reconstruct history for Gemini
@@ -342,10 +347,15 @@ async def chat_service(request: ChatRequest) -> str:
 
     try:
         response = await client.aio.models.generate_content(
-            model='gemini-3-flash-preview',
+            model=model,
             contents=contents,
             config=types.GenerateContentConfig(
-                system_instruction=system_instruction
+                system_instruction=system_instruction,
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                thinking_config=types.ThinkingConfig(
+                    include_thoughts=True,
+                    thinking_level=thinking_level
+                ) if thinking_level != 'minimal' else types.ThinkingConfig(thinking_level='minimal'),
             )
         )
         return response.text
