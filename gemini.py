@@ -41,7 +41,8 @@ async def get_response(prompt):
             response_mime_type="application/json",
             response_schema=SubtitlesResponse,
             thinking_config=types.ThinkingConfig(
-                thinking_budget=0
+                include_thoughts=True,
+                thinking_level='minimal'
             ),
             system_instruction="""
                     # Role
@@ -65,14 +66,20 @@ async def get_response(prompt):
 
 def get_model_config():
     # Default to a balanced configuration
-    return 'gemini-3-flash-preview', 500
+    return 'gemini-3-flash-preview', 'minimal'
 
 async def analyze_sentence_service(sentence: str) -> AnalysisResult:
-    model, thinking_budget = get_model_config()
+    model, thinking_level = get_model_config()
     
     prompt = f"""
     你是一位精通语言学和英语教学的专家 AI。请分析以下英语句子： "{sentence}"。
     目标受众是正在学习英语的学生，因此分析需要**清晰、准确且具有教育意义**。
+
+    **Language Constraint (语言约束)**:
+    - 所有的 `role` (角色) 和 `partOfSpeech` (词性) 字段**必须且只能使用简体中文**。
+    - 严禁输出 "Noun", "Verb", "Subject", "Object", "Attribute", "Predicate" 等英文术语。
+    - 示例词性： "名词", "动词", "形容词", "副词", "介词", "代词", "连词", "限定词", "分词", "动词短语", "介词短语"。
+    - 示例角色： "主语", "谓语", "宾语", "表语", "状语", "定语", "补语", "宾语补足语", "同位语"。
 
     **Processing Steps (Thinking Process):**
     1.  **Grammar Check (纠错)**: 
@@ -96,20 +103,23 @@ async def analyze_sentence_service(sentence: str) -> AnalysisResult:
           - 谓语动词部分合并（例如 "have been waiting" 是一个块）。
           - 不定式短语合并（例如 "to go home" 是一个块）。
 
-    4.  **Detailed Analysis (逐词/短语详解)**:
-        - **核心原则 - 固定搭配优先**：
-          - 遇到短语动词 (phrasal verbs)、固定习语 (idioms)、介词搭配 (collocations) 时，**必须**将它们作为一个整体 Token，**绝对不要拆分**。
-          - 例如："look forward to", "take care of", "a cup of", "depend on"。
-          - **特别处理可分离短语动词 (Separable Phrasal Verbs)**：
-            - 如果遇到像 "pop us back", "turn it on" 这样动词与小品词被代词隔开的情况，请务必**识别出其核心短语动词**（如 "pop back"）。
-            - 在详细解释 (explanation) 中，**必须**明确指出该词属于短语动词 "pop back" (或相应短语)，并解释该短语动词的含义，而不仅仅是单个单词的意思。
-            - 示例：针对 "pop us back"，在解释 "pop" 时，应说明 "pop ... back 是短语动词，意为迅速回去/放回"。
+    4.  **Detailed Analysis (逐词/短语详解 - 核心要求)**:
+        - **全覆盖与意义分块原则 (Comprehensive & Meaningful Chunking)**:
+          - 你的分析必须覆盖句子中的**所有内容**，确保没有遗漏任何语义成分。
+          - **不要机械地拆分每一个单词**。如果几个词共同构成一个紧密的语义单位（如限定词+形容词+名词，或介词短语），应当将它们作为一个 Token 整体分析。
+          - 示例：对于 "a new language"，应作为一个整体分析，而不是拆分为 "a", "new", "language"。
+          - 示例：对于 "from a proton to the observable universe"，应根据语义节奏拆分为合理的块，如 "from a proton", "to the observable universe"，而不是逐词拆分。
+          - **标点符号**：除非标点符号在语法结构上有特殊意义（如破折号、分号），否则通常不需要作为独立的 Token 进行分析。
+        - **核心原则 - 固定搭配与意群优先**：
+          - 遇到短语动词、习语、固定搭配、或紧密的名词短语时，**必须**将它们作为一个整体 Token。
+          - 最终的 `detailedTokens` 列表按顺序拼接起来应能体现句子的完整逻辑流。
+        - **标签要求 (Tags)**：
+          - `partOfSpeech` (词性) 和 `role` (角色) 必须使用**简体中文**。
         - **解释 (Explanation)**：
-          - 不要只给一个词性标签。要解释它在句子中的**功能**和**为什么用这种形式**。
-          - 例如：不要只写"过去分词"，要写"过去分词，与 has 构成现在完成时，表示动作已完成"。
-        - **含义 (Meaning)**：提供在当前语境下的中文含义。
+          - 不要只给一个词性标签。要解释它在句子中的**功能**和**语义作用**。
+        - **含义 (Meaning)**：提供该意群在当前语境下的中文含义。
 
-    请返回 JSON 格式数据。
+    请返回符合 JSON 格式的数据。
     """
 
     try:
@@ -119,7 +129,10 @@ async def analyze_sentence_service(sentence: str) -> AnalysisResult:
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema=AnalysisResult,
-                thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget) if thinking_budget > 0 else None,
+                thinking_config=types.ThinkingConfig(
+                    include_thoughts=True,
+                    thinking_level=thinking_level
+                ) if thinking_level != 'minimal' else types.ThinkingConfig(thinking_level='minimal'),
             )
         )
         
@@ -140,7 +153,7 @@ async def analyze_sentence_service(sentence: str) -> AnalysisResult:
 
 
 async def lookup_word_service(word: str) -> DictionaryResult:
-    model, thinking_budget = get_model_config()
+    model, thinking_level = get_model_config()
 
     prompt = f"""
     Act as a professional learner's dictionary specifically tailored for students preparing for **IELTS, TOEFL, and CET-6**.
@@ -182,7 +195,10 @@ async def lookup_word_service(word: str) -> DictionaryResult:
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema=DictionaryResult,
-                thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget) if thinking_budget > 0 else None,
+                thinking_config=types.ThinkingConfig(
+                    include_thoughts=True,
+                    thinking_level=thinking_level
+                ) if thinking_level != 'minimal' else types.ThinkingConfig(thinking_level='minimal'),
             )
         )
         
@@ -196,7 +212,7 @@ async def lookup_word_service(word: str) -> DictionaryResult:
 
 
 async def evaluate_writing_service(text: str, mode: WritingMode) -> WritingResult:
-    model, thinking_budget = get_model_config()
+    model, thinking_level = get_model_config()
 
     mode_instructions = """
     **MODE: BASIC CORRECTION (基础纠错)**
@@ -258,7 +274,10 @@ async def evaluate_writing_service(text: str, mode: WritingMode) -> WritingResul
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema=WritingResult, # Using the full WritingResult schema, hoping Gemini fills 'mode' or we override it
-                thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget) if thinking_budget > 0 else None,
+                thinking_config=types.ThinkingConfig(
+                    include_thoughts=True,
+                    thinking_level=thinking_level
+                ) if thinking_level != 'minimal' else types.ThinkingConfig(thinking_level='minimal'),
             )
         )
 

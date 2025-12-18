@@ -9,13 +9,13 @@ ContextType = Literal['sentence', 'word', 'writing']
 class AnalysisChunk(BaseModel):
     text: str = Field(description="The text content of this chunk.")
     grammarDescription: str = Field(description="Grammatical description of this chunk (e.g., 'Prepositional Phrase', 'Noun Phrase'). MUST be in Simplified Chinese.")
-    partOfSpeech: str = Field(description="The part of speech for the head of this chunk (e.g., 'noun', 'verb').")
+    partOfSpeech: str = Field(description="The part of speech for the head of this chunk (e.g., 'noun', 'verb'). MUST be in Simplified Chinese.")
     role: str = Field(description="The grammatical role of this chunk in the sentence (e.g., 'Subject', 'Predicate', 'Object'). MUST be in Simplified Chinese.")
 
 class DetailedToken(BaseModel):
     text: str = Field(description="The specific word or phrase being analyzed.")
-    partOfSpeech: str = Field(description="Part of speech of the token.")
-    role: str = Field(description="Grammatical role of the token.")
+    partOfSpeech: str = Field(description="Part of speech of the token. MUST be in Simplified Chinese.")
+    role: str = Field(description="Grammatical role of the token. MUST be in Simplified Chinese.")
     explanation: str = Field(description="Detailed explanation of the token's usage, form, or function in this specific context. MUST be in Simplified Chinese.")
     meaning: str = Field(description="The meaning of the token in this specific context. MUST be in Simplified Chinese.")
 
