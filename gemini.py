@@ -33,16 +33,23 @@ class SubtitleItem(BaseModel):
 class SubtitlesResponse(BaseModel):
     subtitles: List[SubtitleItem]
 
+# --- SmashEnglish Logic ---
+
+def get_model_config():
+    # Default to a balanced configuration
+    return 'gemini-3-flash-preview', 'low'
+
 async def get_response(prompt):
+    model,thinking_level = get_model_config()
     response = await client.aio.models.generate_content(
-        model="gemini-3-flash-preview",
+        model=model,
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=SubtitlesResponse,
             thinking_config=types.ThinkingConfig(
                 include_thoughts=True,
-                thinking_level='minimal'
+                thinking_level= thinking_level
             ),
             system_instruction="""
                     # Role
@@ -62,11 +69,7 @@ async def get_response(prompt):
     )
     return response.parsed.subtitles
 
-# --- SmashEnglish Logic ---
 
-def get_model_config():
-    # Default to a balanced configuration
-    return 'gemini-3-flash-preview', 'minimal'
 
 async def analyze_sentence_service(sentence: str) -> AnalysisResult:
     model, thinking_level = get_model_config()
