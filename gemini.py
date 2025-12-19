@@ -229,40 +229,47 @@ async def evaluate_writing_service(text: str, mode: WritingMode) -> WritingResul
     """
 
     prompt = f"""
-    Act as a professional English Editor and IELTS Examiner.
+    Act as a professional English Writing Coach and Editor.
     
     {mode_instructions}
 
     **Task**:
-    Analyze the user's text and reconstruct it into the *Improved Version* according to the selected mode.
-    You must return the result as a sequence of SEGMENTS that allow us to reconstruct the full text while highlighting exactly what changed.
+    Analyze the user's text and reconstruct it into the *Improved Version*.
+    
+    **Target Standard (CRITICAL)**:
+    - **US High School Student Level**: The improved text should flow naturally like a native US high school student's writing. 
+    - **Beyond Basic Grammar**: Do not just fix grammatical errors. Improve sentence structure, vocabulary choice, and flow to make it sound idiomatic and cohesive.
+    - **Maintain Meaning**: Improve the expression but keep the original meaning and intent.
 
     **Input Text**: "{text}"
 
     **Output Logic**:
-    - Iterate through the improved text.
-    - If a part of the text is the same as original, mark it as 'unchanged'.
-    - If you changed, added, or removed something, create a segment of type 'change'.
-      - 'text': The NEW/IMPROVED text.
-      - 'original': The ORIGINAL text that was replaced (or empty string if added).
-      - 'reason': A specific, educational explanation in Chinese. You MUST explain WHY the original was incorrect using grammatical terms (e.g., "缺少介词 'to'", "主谓不一致", "时态错误"). Avoid vague phrases like "更自然的表达" unless it is purely stylistic.
-      - 'category': One of 'grammar', 'vocabulary', 'style', 'punctuation', 'collocation'.
-    - **CRITICAL - PARAGRAPH PRESERVATION**: 
-      - You MUST preserve all paragraph breaks and newlines (\\n) from the original text exactly as they are.
-      - When you encounter a newline in the original text, return it as a separate segment: {{ "text": "\\n", "type": "unchanged" }}.
-      - Do NOT merge paragraphs.
+    1. **Overall Comment**: Provide a comprehensive summary of the writing (in Simplified Chinese). Mention the good points and the main areas for improvement (e.g., "Sentence variety", "Vocabulary depth", "Logic flow").
+    2. **Segments**:
+       - Iterate through the improved text.
+       - If a part of the text is unchanged, mark it as 'unchanged'.
+       - If you changed, added, or removed something, create a segment of type 'change'.
+         - 'text': The NEW/IMPROVED text.
+         - 'original': The ORIGINAL text that was replaced (or empty string if added).
+         - 'reason': A specific, educational explanation in **Simplified Chinese**. Explain WHY the change improves the text (e.g., "Change 'happy' to 'elated' for better vocabulary", "Combine sentences for better flow").
+         - 'category': One of 'grammar', 'vocabulary', 'style', 'punctuation', 'collocation', 'flow'.
     
+    **CRITICAL - PARAGRAPH PRESERVATION**: 
+    - You MUST preserve all paragraph breaks and newlines (\\n) from the original text exactly as they are.
+    - When you encounter a newline in the original text, return it as a separate segment: {{ "text": "\\n", "type": "unchanged" }}.
+    - Do NOT merge paragraphs.
+
     **Example**:
-    Original: "I go store.\\n\\nIt was fun."
-    Improved: "I went to the store.\\n\\nIt was fun."
+    Original: "I go store today. It big."
+    Improved: "I went to the store today. It was huge."
     Segments:
     [
       {{ "text": "I ", "type": "unchanged" }},
-      {{ "text": "went", "original": "go", "type": "change", "reason": "Past tense", "category": "grammar" }},
-      {{ "text": " to the ", "original": "", "type": "change", "reason": "Preposition", "category": "grammar" }},
-      {{ "text": "store.", "type": "unchanged" }},
-      {{ "text": "\\n\\n", "type": "unchanged" }},
-      {{ "text": "It was fun.", "type": "unchanged" }}
+      {{ "text": "went", "original": "go", "type": "change", "reason": "时态修正：应使用过去时", "category": "grammar" }},
+      {{ "text": " to the ", "original": "", "type": "change", "reason": "缺失介词和冠词", "category": "grammar" }},
+      {{ "text": "store today. It was ", "type": "unchanged" }},
+      {{ "text": "huge", "original": "big", "type": "change", "reason": "词汇升级：'huge' 比 'big' 更具体", "category": "vocabulary" }},
+      {{ "text": ".", "type": "unchanged" }}
     ]
 
     Return strictly JSON.
@@ -271,6 +278,7 @@ async def evaluate_writing_service(text: str, mode: WritingMode) -> WritingResul
     # Define a partial schema for response to match WritingResult structure but without 'mode' which we set manually
     class WritingResponseSchema(BaseModel):
         generalFeedback: str
+        overall_comment: str
         segments: List[WritingResult.model_fields['segments'].annotation]
 
     try:

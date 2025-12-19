@@ -81,7 +81,8 @@ class WritingSegment(BaseModel):
 
 class WritingResult(BaseModel):
     mode: WritingMode
-    generalFeedback: str
+    generalFeedback: str = Field(description="General feedback on the writing.")
+    overall_comment: str = Field(description="A summary of the user's writing quality and main issues in Simplified Chinese.")
     segments: List[WritingSegment]
 
 class WritingRequest(BaseModel):
