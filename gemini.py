@@ -37,7 +37,7 @@ class SubtitlesResponse(BaseModel):
 
 def get_model_config():
     # Default to a balanced configuration
-    return 'gemini-3-flash-preview', 'low'
+    return 'gemini-3-flash-preview', 'minimal'
 
 # --- Subtitle Editor agent ---
 async def get_response(prompt):
