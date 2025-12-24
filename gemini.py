@@ -10,7 +10,9 @@ from schemas import (
     DictionaryResult, LookupRequest,
     WritingResult, WritingRequest, WritingMode,
     ChatRequest,
-    QuickLookupResult
+    QuickLookupResult,
+    RapidLookupResult,
+    TranslateResult
 )
 
 try:
@@ -424,3 +426,60 @@ async def quick_lookup_service(word: str, context: str) -> QuickLookupResult:
         print(f"Quick Lookup API Error: {e}")
         raise Exception("快速查词失败，请重试。")
 
+
+async def rapid_lookup_service(word: str, context: str) -> RapidLookupResult:
+    """极速查词服务 - 极致简短的 Prompt 以提高响应速度"""
+    model, _ = get_model_config()
+    
+    # 使用更快的模型或配置
+    # 强制不使用 thinking 以减少延迟
+    prompt = f"Word: {word}\nContext: {context}\nOutput: Concise Chinese meaning (m) and POS (p) in JSON."
+
+    try:
+        response = await client.aio.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=RapidLookupResult,
+                # 尽量禁用所有额外开销
+                thinking_config=types.ThinkingConfig(thinking_level='minimal'),
+            )
+        )
+        
+        if not response.parsed:
+            raise ValueError("Empty response")
+        
+        return response.parsed
+    except Exception as e:
+        print(f"Rapid Lookup API Error: {e}")
+        # 返回一个降级的响应
+        return RapidLookupResult(m="查询失败", p="?")
+
+async def translate_service(text: str) -> TranslateResult:
+    """极速翻译服务 - 将英文句子翻译为地道的中文"""
+    model, thinking_level = get_model_config()
+
+    system_instruction = """
+    你是一个极速翻译助手。
+    你的任务是将用户输入的英文句子翻译成地道、自然、简洁的简体中文。
+    只返回翻译结果，不要有任何额外的解释或说明。
+    """
+
+    try:
+        response = await client.aio.models.generate_content(
+            model=model,
+            contents=text,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                thinking_config=types.ThinkingConfig(thinking_level='minimal'),
+            )
+        )
+        
+        if not response.text:
+            raise ValueError("Empty response from Gemini")
+        
+        return TranslateResult(translation=response.text.strip())
+    except Exception as e:
+        print(f"Translate API Error: {e}")
+        raise Exception("翻译失败，请重试。")

@@ -117,3 +117,19 @@ class QuickLookupResult(BaseModel):
     grammarRole: str = Field(description="The grammatical role of the word in the sentence (e.g., 'Subject', 'Object', 'Fixed collocation'), in Simplified Chinese")
     explanation: str = Field(description="Explanation of why this meaning applies in the context, in Simplified Chinese")
 
+
+# --- Rapid Lookup (Ultra Fast) ---
+class RapidLookupRequest(BaseModel):
+    word: str
+    context: str
+
+class RapidLookupResult(BaseModel):
+    m: str = Field(description="Concise Chinese meaning")
+    p: str = Field(description="POS abbreviation")
+
+# --- Translate Schemas ---
+class TranslateRequest(BaseModel):
+    text: str
+
+class TranslateResult(BaseModel):
+    translation: str

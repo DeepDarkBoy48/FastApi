@@ -10,7 +10,9 @@ from schemas import (
     LookupRequest, DictionaryResult,
     WritingRequest, WritingResult,
     ChatRequest, ChatResponse,
-    QuickLookupRequest, QuickLookupResult
+    QuickLookupRequest, QuickLookupResult,
+    RapidLookupRequest, RapidLookupResult,
+    TranslateRequest, TranslateResult
 )
 
 app = FastAPI()
@@ -111,3 +113,20 @@ async def quick_lookup(request: QuickLookupRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/fastapi/rapid-lookup", response_model=RapidLookupResult)
+async def rapid_lookup(request: RapidLookupRequest):
+    """极简上下文查词 - 极致速度"""
+    try:
+        result = await gemini.rapid_lookup_service(request.word, request.context)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/fastapi/translate", response_model=TranslateResult)
+async def translate_endpoint(request: TranslateRequest):
+    """极速翻译接口"""
+    try:
+        result = await gemini.translate_service(request.text)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
