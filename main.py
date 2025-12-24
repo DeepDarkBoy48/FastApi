@@ -9,7 +9,8 @@ from schemas import (
     AnalysisRequest, AnalysisResult,
     LookupRequest, DictionaryResult,
     WritingRequest, WritingResult,
-    ChatRequest, ChatResponse
+    ChatRequest, ChatResponse,
+    QuickLookupRequest, QuickLookupResult
 )
 
 app = FastAPI()
@@ -97,6 +98,16 @@ async def chat(request: ChatRequest):
     try:
         response_text = await gemini.chat_service(request)
         return ChatResponse(response=response_text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/fastapi/quick-lookup", response_model=QuickLookupResult)
+async def quick_lookup(request: QuickLookupRequest):
+    """快速上下文查词 - 返回单词在上下文中的释义和解释"""
+    try:
+        result = await gemini.quick_lookup_service(request.word, request.context)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

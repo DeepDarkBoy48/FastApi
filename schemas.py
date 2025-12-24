@@ -104,3 +104,16 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
 
+
+# --- Quick Lookup Schemas (上下文快速查词) ---
+class QuickLookupRequest(BaseModel):
+    word: str = Field(description="The word to look up")
+    context: str = Field(description="The sentence context where the word appears")
+
+class QuickLookupResult(BaseModel):
+    word: str = Field(description="The word being looked up")
+    contextMeaning: str = Field(description="The meaning of the word in the given context, in Simplified Chinese")
+    partOfSpeech: str = Field(description="The part of speech abbreviation (e.g., 'n.', 'v.', 'adj.'), in Simplified Chinese")
+    grammarRole: str = Field(description="The grammatical role of the word in the sentence (e.g., 'Subject', 'Object', 'Fixed collocation'), in Simplified Chinese")
+    explanation: str = Field(description="Explanation of why this meaning applies in the context, in Simplified Chinese")
+

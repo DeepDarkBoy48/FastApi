@@ -9,7 +9,8 @@ from schemas import (
     AnalysisResult, AnalysisRequest,
     DictionaryResult, LookupRequest,
     WritingResult, WritingRequest, WritingMode,
-    ChatRequest
+    ChatRequest,
+    QuickLookupResult
 )
 
 try:
@@ -370,4 +371,56 @@ async def chat_service(request: ChatRequest) -> str:
     except Exception as e:
         print(f"Chat API Error: {e}")
         raise Exception("聊天服务暂时不可用。")
+
+
+async def quick_lookup_service(word: str, context: str) -> QuickLookupResult:
+    """快速上下文查词服务 - 给出单词在上下文中的释义和解释"""
+    model, thinking_level = get_model_config()
+
+    prompt = f"""
+    你是一位英语教学专家。请分析单词 "{word}" 在以下句子上下文中的具体含义、词性、语法成分和用法：
+    
+    **句子上下文**: "{context}"
+    
+    **任务要求**:
+    1. **contextMeaning**: 给出这个词在当前上下文中的**具体中文释义**（简洁，1-2个词）。
+    2. **partOfSpeech**: 给出这个词在当前语境下的**精准词性缩写**（如：及物动词 vt., 不及物动词 vi., 名词 n., 形容词 adj., 副词 adv., 介词 prep., 连词 conj. 等）。
+    3. **grammarRole**: 给出这个词在句子中的**语法成分**（如：主语、谓语、宾语、定语、状语、表语、宾补、同位语等）或**固定搭配/短语**。
+    4. **explanation**: 简要解释为什么是这个意思及其在句中的用法细节。
+       - 如果涉及固定搭配（如 "upload...to..."），请务必指出来。
+       - 结合上下文背景，说明该词传达的语气或具体指代的对象。
+    
+    **输出语言**: 全部使用简体中文。
+    **输出格式**: 严格 JSON。
+    
+    示例输出:
+    {{
+      "word": "footage",
+      "contextMeaning": "素材，视频剪辑",
+      "partOfSpeech": "n.",
+      "grammarRole": "宾语 (与 upload 构成动宾短语)",
+      "explanation": "在句子中，'footage' 指的是拍摄好的视频素材。这里的固定搭配'upload your footage to YouTube'意为'将你的视频素材上传到YouTube'，其中'footage'特指已完成拍摄、准备进行后期制作或直接上传的视频内容。"
+    }}
+    """
+
+    try:
+        response = await client.aio.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=QuickLookupResult,
+                thinking_config=types.ThinkingConfig(thinking_level='minimal'),
+            )
+        )
+        
+        if not response.parsed:
+            raise ValueError("Empty response from Gemini")
+        
+        result = response.parsed
+        result.word = word  # Ensure correct word is returned
+        return result
+    except Exception as e:
+        print(f"Quick Lookup API Error: {e}")
+        raise Exception("快速查词失败，请重试。")
 
