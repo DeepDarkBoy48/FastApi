@@ -12,7 +12,8 @@ from schemas import (
     ChatRequest,
     QuickLookupResult,
     RapidLookupResult,
-    TranslateResult
+    TranslateResult,
+    BlogSummaryResult
 )
 
 try:
@@ -28,55 +29,42 @@ if not api_key:
 client = genai.Client(api_key=api_key)
 
 # --- Existing Subtitle Logic ---
-class SubtitleItem(BaseModel):
-    start: str = Field(description="Original start timestamp string (e.g., '00:01:23.456'). Do NOT convert to seconds.")
-    end: str = Field(description="Original end timestamp string (e.g., '00:01:25.789'). Do NOT convert to seconds.")
-    text: str = Field(description="Complete, merged sentence text.")
-
-class SubtitlesResponse(BaseModel):
-    subtitles: List[SubtitleItem]
 
 # --- SmashEnglish Logic ---
 
-def get_model_config():
-    # Default to a balanced configuration
-    return 'gemini-3-flash-preview', 'minimal'
+# --- Model Configuration Central ---
 
-# --- Subtitle Editor agent ---
-async def get_response(prompt):
-    model,thinking_level = get_model_config()
-    response = await client.aio.models.generate_content(
-        model=model,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=SubtitlesResponse,
-            thinking_config=types.ThinkingConfig(
-                include_thoughts=True,
-                thinking_level= "minimal"
-            ),
-            system_instruction="""
-                    # Role
-                    You are an expert subtitle editor. 
-                    
-                    # Task
-                    1. Merge fragmented sentences into complete sentences based on context.
-                    2. Deduplicate repeating lines.
-                    3. Keep timestamps in their **ORIGINAL format** (HH:MM:SS.mmm).
-                    
-                    # Rules
-                    - strictly maintain the timeline sequence.
-                    - Start time = start timestamp of the first fragment.
-                    - End time = end timestamp of the last fragment.
-                    - Do NOT convert times to math/floats. Just copy the string.
-            """),
-    )
-    return response.parsed.subtitles
+DEFAULT_MODEL = 'gemini-3-flash-preview'
+
+
+def get_analysis_config():
+    """句子语法分析卡片模式"""
+    return DEFAULT_MODEL, 'low'
+
+def get_dictionary_config():
+    """详细词典查询模式"""
+    return DEFAULT_MODEL, 'low'
+
+def get_writing_config():
+    """写作润色与评分模式"""
+    return DEFAULT_MODEL, 'low'
+
+def get_chat_config():
+    """AI 助教对话模式"""
+    return DEFAULT_MODEL, 'minimal'
+
+def get_lookup_config():
+    """上下文查词卡片模式 (含快速与极速)"""
+    return DEFAULT_MODEL, 'minimal'
+
+def get_translate_config():
+    """全文/句子极速翻译模式"""
+    return DEFAULT_MODEL, 'minimal'
 
 
 
 async def analyze_sentence_service(sentence: str) -> AnalysisResult:
-    model, thinking_level = get_model_config()
+    model, thinking_level = get_analysis_config()
     
     prompt = f"""
     你是一位精通语言学和英语教学的专家 AI。请分析以下英语句子： "{sentence}"。
@@ -160,7 +148,7 @@ async def analyze_sentence_service(sentence: str) -> AnalysisResult:
 
 
 async def lookup_word_service(word: str) -> DictionaryResult:
-    model, thinking_level = get_model_config()
+    model, thinking_level = get_dictionary_config()
 
     prompt = f"""
     Act as a professional learner's dictionary specifically tailored for students preparing for **IELTS, TOEFL, and CET-6**.
@@ -221,7 +209,7 @@ async def lookup_word_service(word: str) -> DictionaryResult:
 
 
 async def evaluate_writing_service(text: str, mode: WritingMode) -> WritingResult:
-    model, thinking_level = get_model_config()
+    model, thinking_level = get_writing_config()
 
     mode_instructions = """
     **MODE: BASIC CORRECTION (基础纠错)**
@@ -312,7 +300,7 @@ async def evaluate_writing_service(text: str, mode: WritingMode) -> WritingResul
 
 
 async def chat_service(request: ChatRequest) -> str:
-    model, thinking_level = get_model_config()
+    model, thinking_level = get_chat_config()
     context_instruction = ""
     if request.contextType == 'sentence':
          context_instruction = f'**当前正在分析的句子**: "{request.contextContent or "用户暂未输入句子"}"。'
@@ -377,7 +365,7 @@ async def chat_service(request: ChatRequest) -> str:
 
 async def quick_lookup_service(word: str, context: str) -> QuickLookupResult:
     """快速上下文查词服务 - 给出单词在上下文中的释义和解释"""
-    model, thinking_level = get_model_config()
+    model, thinking_level = get_lookup_config()
 
     prompt = f"""
     你是一位英语教学专家。请分析单词 "{word}" 在以下句子上下文中的具体含义、词性、语法成分和用法：
@@ -412,7 +400,7 @@ async def quick_lookup_service(word: str, context: str) -> QuickLookupResult:
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema=QuickLookupResult,
-                thinking_config=types.ThinkingConfig(thinking_level='minimal'),
+                thinking_config=types.ThinkingConfig(thinking_level=thinking_level),
             )
         )
         
@@ -429,7 +417,7 @@ async def quick_lookup_service(word: str, context: str) -> QuickLookupResult:
 
 async def rapid_lookup_service(word: str, context: str) -> RapidLookupResult:
     """极速查词服务 - 极致简短的 Prompt 以提高响应速度"""
-    model, _ = get_model_config()
+    model, thinking_level = get_lookup_config()
     
     # 使用更快的模型或配置
     # 强制不使用 thinking 以减少延迟
@@ -443,7 +431,7 @@ async def rapid_lookup_service(word: str, context: str) -> RapidLookupResult:
                 response_mime_type="application/json",
                 response_schema=RapidLookupResult,
                 # 尽量禁用所有额外开销
-                thinking_config=types.ThinkingConfig(thinking_level='minimal'),
+                thinking_config=types.ThinkingConfig(thinking_level=thinking_level),
             )
         )
         
@@ -458,7 +446,7 @@ async def rapid_lookup_service(word: str, context: str) -> RapidLookupResult:
 
 async def translate_service(text: str) -> TranslateResult:
     """极速翻译服务 - 将英文句子翻译为地道的中文"""
-    model, thinking_level = get_model_config()
+    model, thinking_level = get_translate_config()
 
     system_instruction = """
     你是一个极速翻译助手。
@@ -472,7 +460,7 @@ async def translate_service(text: str) -> TranslateResult:
             contents=text,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
-                thinking_config=types.ThinkingConfig(thinking_level='minimal'),
+                thinking_config=types.ThinkingConfig(thinking_level=thinking_level),
             )
         )
         
@@ -482,4 +470,73 @@ async def translate_service(text: str) -> TranslateResult:
         return TranslateResult(translation=response.text.strip())
     except Exception as e:
         print(f"Translate API Error: {e}")
-        raise Exception("翻译失败，请重试。")
+async def generate_daily_summary_service(words: List[dict]) -> BlogSummaryResult:
+    """用 AI 结合 Google 搜索对当天的单词及来源链接进行串联总结 (结构化输出)"""
+    model = DEFAULT_MODEL
+    
+    # 构建单词和 URL 信息字符串
+    words_info = ""
+    for w in words:
+        meaning = w['data'].get('contextMeaning') or w['data'].get('m') or ''
+        words_info += f"- Word: {w['word']}\n  Meaning: {meaning}\n  Sentence: {w['context']}\n"
+        url = w.get('url') or w['data'].get('url', '')
+        if url:
+            words_info += f"  Source URL: {url}\n"
+        words_info += "\n"
+    
+    prompt = f"""
+    你是一位精通跨学科学习和深度英语教学的博主。
+    以下是用户今天学习并收藏的英语单词，以及它们出现的具体语境和来源链接：
+    
+    {words_info}
+    
+    **你的终极任务**:
+    请创作一篇名为“今日深度视界：词汇与背后的故事”或类似主题的深度学习随笔。
+    
+    **核心要求**:
+    1. **利用 Google 搜索 (CRITICAL)**: 
+       - 请**务必使用搜索功能**浏览以上的 Source URL（如果有）。
+       - 了解这些单词所处文章的大背景、核心观点和专业领域知识，用于丰富你的故事背景。
+    2. **Catchy Title**: 生成一个带有表情符号 (Emoji) 且引人入胜的标题。
+    3. **Concise Prologue**: 撰写一段 80-120 字的开幕词 (Prologue)，概述今日的学习重点及其意义。
+    4. **Story-like Narrative**: 
+       - 不要生硬罗列单词。要将这些单词结合它们所在的真实世界背景（从搜索中获得）进行串联，编织成一个连贯、有启发性的故事。
+       - 分为若干个 `##` 标题的章节。
+       - **重点标注**: 在正文中使用 **粗体** 标注这些收藏的重点词。
+    5. **Bilingual Content**: 
+       - 故事正文部分采用**中英双语对照**（例如：一段英文紧跟一段中文翻译）。
+       - 英文部分应使用地道、简洁的表达（A2-B1 水平），方便学习者理解。
+    6. **排版与美学**: 
+       - 使用优雅的 Markdown 语法。
+       - 使用 `> ` 引用精妙的背景知识。
+    
+    请使用简体中文作为主要输出语言（除了英文原句和双语对照部分）。
+    """
+
+    try:
+        response = await client.aio.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                response_mime_type="application/json",
+                response_schema=BlogSummaryResult,
+                thinking_config=types.ThinkingConfig(thinking_level='low'), 
+            )
+        )
+        if response.parsed:
+            return response.parsed
+        
+        # Fallback if parsing fails
+        return BlogSummaryResult(
+            title="今日学习回顾 📖",
+            prologue="这是一份基于你今日学习词汇自动生成的总结。",
+            content=response.text.strip() if response.text else "今天学习了这些词，要继续加油哦！"
+        )
+    except Exception as e:
+        print(f"Summary Generation Error: {e}")
+        return BlogSummaryResult(
+            title="生成失败",
+            prologue="AI 在尝试深入了解这些单词背景时遇到了一些挑战。",
+            content=f"错误详情: {str(e)}\n\n{words_info}"
+        )

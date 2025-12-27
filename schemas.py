@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal, Union
+from datetime import date as pydate
 
 # --- Shared Enums ---
 WritingMode = Literal['fix']
@@ -109,6 +110,7 @@ class ChatResponse(BaseModel):
 class QuickLookupRequest(BaseModel):
     word: str = Field(description="The word to look up")
     context: str = Field(description="The sentence context where the word appears")
+    url: Optional[str] = Field(None, description="The original URL where the word was found")
 
 class QuickLookupResult(BaseModel):
     word: str = Field(description="The word being looked up")
@@ -133,3 +135,66 @@ class TranslateRequest(BaseModel):
 
 class TranslateResult(BaseModel):
     translation: str
+
+# --- Saved Words Schemas ---
+class SavedWord(BaseModel):
+    id: int
+    word: str
+    context: str
+    url: Optional[str] = None
+    data: dict
+    created_at: Optional[str] = None
+    note_id: Optional[int] = None
+
+class SavedWordsResponse(BaseModel):
+    words: List[SavedWord]
+
+class DailyNote(BaseModel):
+    id: int
+    title: Optional[str] = None
+    day: str  # YYYY-MM-DD
+    summary: Optional[str] = None
+    content: Optional[str] = None
+    word_count: int
+    created_at: str
+
+class DailyNotesResponse(BaseModel):
+    notes: List[DailyNote]
+
+class NoteDetailResponse(BaseModel):
+    note: DailyNote
+    words: List[SavedWord]
+
+class BlogSummaryResult(BaseModel):
+    title: str = Field(description="A catchy, emoji-infused title for the blog post.")
+    prologue: str = Field(description="A concise, engaging prologue (80-120 words) introducing the day's learning.")
+    content: str = Field(description="The main blog content in Markdown format, connecting the words in a story-like narrative.")
+
+
+# --- Video Notebook Schemas ---
+class VideoNotebookCreate(BaseModel):
+    title: str
+    video_url: str
+    video_id: Optional[str] = None
+    srt_content: str
+    thumbnail_url: Optional[str] = None
+
+class VideoNotebook(BaseModel):
+    id: int
+    title: str
+    video_url: str
+    video_id: Optional[str] = None
+    srt_content: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+class VideoNotebookListResponse(BaseModel):
+    notebooks: List[VideoNotebook]
+
+class VideoNotebookUpdate(BaseModel):
+    title: Optional[str] = None
+    video_url: Optional[str] = None
+    video_id: Optional[str] = None
+    srt_content: Optional[str] = None
+    thumbnail_url: Optional[str] = None
