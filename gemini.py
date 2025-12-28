@@ -43,7 +43,7 @@ def get_analysis_config():
 
 def get_dictionary_config():
     """详细词典查询模式"""
-    return DEFAULT_MODEL, 'low'
+    return DEFAULT_MODEL, 'minimal'
 
 def get_writing_config():
     """写作润色与评分模式"""
