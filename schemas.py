@@ -112,12 +112,20 @@ class QuickLookupRequest(BaseModel):
     context: str = Field(description="The sentence context where the word appears")
     url: Optional[str] = Field(None, description="The original URL where the word was found")
 
+class OtherMeaning(BaseModel):
+    meaning: str = Field(description="Other common meaning in Simplified Chinese")
+    partOfSpeech: str = Field(description="POS for this meaning")
+    example: str = Field(description="A concise English example sentence for this meaning")
+
+
 class QuickLookupResult(BaseModel):
     word: str = Field(description="The word being looked up")
     contextMeaning: str = Field(description="The meaning of the word in the given context, in Simplified Chinese")
     partOfSpeech: str = Field(description="The part of speech abbreviation (e.g., 'n.', 'v.', 'adj.'), in Simplified Chinese")
     grammarRole: str = Field(description="The grammatical role of the word in the sentence (e.g., 'Subject', 'Object', 'Fixed collocation'), in Simplified Chinese")
     explanation: str = Field(description="Explanation of why this meaning applies in the context, in Simplified Chinese")
+    otherMeanings: Optional[List[OtherMeaning]] = Field(default=[], description="Other common and high-frequency meanings of the word")
+
 
 
 # --- Rapid Lookup (Ultra Fast) ---

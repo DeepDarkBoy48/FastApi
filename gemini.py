@@ -379,8 +379,11 @@ async def quick_lookup_service(word: str, context: str) -> QuickLookupResult:
     4. **explanation**: 简要解释为什么是这个意思及其在句中的用法细节。
        - 如果涉及固定搭配（如 "upload...to..."），请务必指出来。
        - 结合上下文背景，说明该词传达的语气或具体指代的对象。
+    5. **otherMeanings**: 提供该单词的**其他常见且高频**的释义。
+       - **过滤规则**: 严禁提供生僻、古僻、过于专业或罕见的释义。只保留在中高考、雅思、托福或日常口语中常见的 2-3 个其他意思。
+       - 每个意思需包含 `meaning` (中文释义)、`partOfSpeech` (词性) 以及一个简短的英文例句 `example`。
     
-    **输出语言**: 全部使用简体中文。
+    **输出语言**: 全部使用简体中文（释义和解释部分）。
     **输出格式**: 严格 JSON。
     
     示例输出:
@@ -389,9 +392,14 @@ async def quick_lookup_service(word: str, context: str) -> QuickLookupResult:
       "contextMeaning": "素材，视频剪辑",
       "partOfSpeech": "n.",
       "grammarRole": "宾语 (与 upload 构成动宾短语)",
-      "explanation": "在句子中，'footage' 指的是拍摄好的视频素材。这里的固定搭配'upload your footage to YouTube'意为'将你的视频素材上传到YouTube'，其中'footage'特指已完成拍摄、准备进行后期制作或直接上传的视频内容。"
+      "explanation": "在句子中，'footage' 指的是拍摄好的视频素材。这里的固定搭配'upload your footage to YouTube'意为'将你的视频素材上传到YouTube'，其中'footage'特指已完成拍摄、准备进行后期制作或直接上传的视频内容。",
+      "otherMeanings": [
+        {{ "meaning": "英尺长度", "partOfSpeech": "n.", "example": "The room has a lot of square footage." }}
+      ]
     }}
+
     """
+
 
     try:
         response = await client.aio.models.generate_content(

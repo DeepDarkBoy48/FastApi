@@ -22,8 +22,8 @@ app = FastAPI()
 
 # Database configuration
 DB_CONFIG = {
-    # 'host': '47.79.43.73',
-    'host': 'mysql-container',  
+    'host': '47.79.43.73',
+    # 'host': 'mysql-container',  
     'user': 'root',
     'password': 'aZ9s8f7G3j2kL5mN',
     'database': 'smashenglish',
@@ -41,6 +41,12 @@ def save_word_to_db(word: str, context: str, data: dict, url: str = None):
         today = date.today().isoformat()
         try:
             with connection.cursor() as cursor:
+                # 0. 检查单词是否已存在 (避免重复保存)
+                cursor.execute("SELECT id FROM saved_words WHERE word = %s", (word,))
+                if cursor.fetchone():
+                    print(f"Word '{word}' already exists in database. Skipping insertion.")
+                    return
+
                 # 1. 检查今天是否有 note 记录
                 cursor.execute("SELECT id FROM daily_notes WHERE day = %s", (today,))
                 row = cursor.fetchone()
@@ -67,6 +73,7 @@ def save_word_to_db(word: str, context: str, data: dict, url: str = None):
             connection.close()
     except Exception as e:
         print(f"Database Save Error: {e}")
+
 
 
 
