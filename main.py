@@ -3,8 +3,12 @@ from pydantic import BaseModel
 import os
 import gemini
 import pymysql
+from pymysql.cursors import DictCursor
 import json
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
+import math
+from fsrs import Scheduler, Card, Rating, State
+from dotenv import load_dotenv
 from schemas import (
     AnalysisRequest, AnalysisResult,
     LookupRequest, DictionaryResult,
@@ -15,8 +19,11 @@ from schemas import (
     TranslateRequest, TranslateResult,
     SavedWord, SavedWordsResponse,
     DailyNote, DailyNotesResponse, NoteDetailResponse,
-    VideoNotebook, VideoNotebookCreate, VideoNotebookListResponse, VideoNotebookUpdate
+    VideoNotebook, VideoNotebookCreate, VideoNotebookListResponse, VideoNotebookUpdate,
+    TodayReviewResponse, ReviewArticle, FSRSFeedbackRequest,
+    ReviewPromptResponse, ReviewImportRequest
 )
+
 
 app = FastAPI()
 
@@ -73,6 +80,41 @@ def save_word_to_db(word: str, context: str, data: dict, url: str = None):
             connection.close()
     except Exception as e:
         print(f"Database Save Error: {e}")
+
+# --- FSRS Implementation ---
+fsrs = Scheduler()
+
+def get_fsrs_rating(rating: int) -> Rating:
+    """将前端 1-4 档转换为官方 Rating 枚举"""
+    if rating == 1: return Rating.Again
+    if rating == 2: return Rating.Hard
+    if rating == 3: return Rating.Good
+    return Rating.Easy
+
+def format_saved_word(row):
+    """Utility to format DB row to SavedWord schema"""
+    data_val = row['data']
+    try:
+        parsed_data = json.loads(data_val) if isinstance(data_val, str) else data_val
+    except:
+        parsed_data = {}
+    
+    return SavedWord(
+        id=row['id'],
+        word=row['word'],
+        context=row['context'],
+        url=row['url'],
+        data=parsed_data,
+        created_at=row['created_at'].strftime('%Y-%m-%d %H:%M:%S') if row['created_at'] else None,
+        note_id=row['note_id'],
+        stability=row['stability'],
+        difficulty=row['difficulty'],
+        elapsed_days=row['elapsed_days'],
+        scheduled_days=row['scheduled_days'],
+        last_review=row['last_review'].strftime('%Y-%m-%d %H:%M:%S') if row['last_review'] else None,
+        reps=row['reps'],
+        state=row['state']
+    )
 
 
 
@@ -187,23 +229,87 @@ async def get_note_detail(note_id: int):
                 word_rows = cursor.fetchall()
                 words = []
                 for row in word_rows:
-                    data_raw = row['data']
-                    data_parsed = json.loads(data_raw) if isinstance(data_raw, str) else data_raw
-                    words.append(SavedWord(
-                        id=row['id'],
-                        word=row['word'],
-                        context=row['context'],
-                        url=row.get('url'),
-                        data=data_parsed,
-                        created_at=row['created_at'].strftime('%Y-%m-%d %H:%M:%S') if row['created_at'] else "",
-                        note_id=row['note_id']
-                    ))
+                    words.append(format_saved_word(row))
                 
                 return NoteDetailResponse(note=note, words=words)
         finally:
             connection.close()
     except Exception as e:
         print(f"Database Get Note Detail Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/fastapi/review/feedback")
+async def submit_review_feedback(request: FSRSFeedbackRequest):
+    """提交复习反馈，使用官方 FSRS 库更新状态"""
+    try:
+        connection = get_db_connection()
+        try:
+            with connection.cursor() as cursor:
+                # 1. 获取单词当前状态
+                cursor.execute("SELECT * FROM saved_words WHERE id = %s", (request.word_id,))
+                word = cursor.fetchone()
+                if not word:
+                    raise HTTPException(status_code=404, detail="Word not found")
+
+                # 2. 构建官方 Card 对象
+                # 官方 last_review 要求是 UTC datetime 或 None
+                last_review = word['last_review']
+                if last_review and last_review.tzinfo is None:
+                    last_review = last_review.replace(tzinfo=timezone.utc)
+
+                if word['reps'] == 0:
+                    # 新词，使用默认构造函数
+                    card = Card(
+                        state=State.Learning,
+                        due=datetime.now(timezone.utc)
+                    )
+                else:
+                    # 已有记录的词
+                    card = Card(
+                        due=word['due'].replace(tzinfo=timezone.utc) if word['due'] else datetime.now(timezone.utc),
+                        stability=word['stability'],
+                        difficulty=word['difficulty'],
+                        state=State(word['state']) if word['state'] > 0 else State.Learning,
+                        last_review=last_review
+                    )
+
+                # 3. 使用官方库计算新状态
+                now = datetime.now(timezone.utc)
+                rating = get_fsrs_rating(request.rating)
+                
+                # V6 API 使用 review_card，返回 (new_card, review_log)
+                new_card, _ = fsrs.review_card(card, rating, now)
+
+                # 4. 更新数据库
+                sql = """
+                    UPDATE saved_words SET 
+                        stability = %s, 
+                        difficulty = %s, 
+                        elapsed_days = %s, 
+                        scheduled_days = %s, 
+                        last_review = %s, 
+                        due = %s, 
+                        reps = %s, 
+                        state = %s 
+                    WHERE id = %s
+                """
+                cursor.execute(sql, (
+                    new_card.stability,
+                    new_card.difficulty,
+                    (now - last_review).days if last_review else 0,
+                    (new_card.due - now).days,
+                    new_card.last_review,
+                    new_card.due,
+                    word['reps'] + 1,
+                    new_card.state.value,
+                    request.word_id
+                ))
+                connection.commit()
+            return {"status": "success", "next_review": new_card.due.strftime('%Y-%m-%d %H:%M:%S')}
+        finally:
+            connection.close()
+    except Exception as e:
+        print(f"FSRS Feedback Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/fastapi/daily-notes/{note_id}/summarize")
@@ -283,17 +389,7 @@ async def get_all_saved_words():
                 rows = cursor.fetchall()
                 words = []
                 for row in rows:
-                    data_raw = row['data']
-                    data_parsed = json.loads(data_raw) if isinstance(data_raw, str) else data_raw
-                    words.append(SavedWord(
-                        id=row['id'],
-                        word=row['word'],
-                        context=row['context'],
-                        url=row.get('url'),
-                        data=data_parsed,
-                        created_at=row['created_at'].strftime('%Y-%m-%d %H:%M:%S') if row['created_at'] else "",
-                        note_id=row['note_id']
-                    ))
+                    words.append(format_saved_word(row))
                 return SavedWordsResponse(words=words)
         finally:
             connection.close()
@@ -449,5 +545,253 @@ async def delete_notebook(notebook_id: int):
             connection.close()
     except Exception as e:
         print(f"Delete Notebook Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- FSRS Review Endpoints ---
+
+@app.get("/fastapi/review/today", response_model=TodayReviewResponse)
+async def get_today_review():
+    """获取项目今日复习，如果不存在则立刻创建占位记录以锁定单词队列"""
+    try:
+        connection = get_db_connection()
+        try:
+            with connection.cursor() as cursor:
+                # 1. 检查今日是否已经有了记录 (使用 review_date)
+                today = date.today().isoformat()
+                cursor.execute("SELECT * FROM review_articles WHERE review_date = %s", (today,))
+                article_row = cursor.fetchone()
+
+                if article_row:
+                    # 如果已存在，获取关联单词
+                    word_ids = json.loads(article_row['words_json'])
+                    if word_ids:
+                        placeholders = ', '.join(['%s'] * len(word_ids))
+                        cursor.execute(f"SELECT * FROM saved_words WHERE id IN ({placeholders})", tuple(word_ids))
+                        article_word_rows = cursor.fetchall()
+                        word_map = {r['id']: format_saved_word(r) for r in article_word_rows}
+                        words = [word_map[wid] for wid in word_ids if wid in word_map]
+                    else:
+                        words = []
+                    
+                    # 格式化数据
+                    article_row['words_json'] = word_ids
+                    article_row['review_date'] = article_row['review_date'].isoformat()
+                    article_row['created_at'] = article_row['created_at'].strftime('%Y-%m-%d %H:%M:%S')
+                    return TodayReviewResponse(
+                        article=ReviewArticle(**article_row),
+                        words=words,
+                        is_new_article=False
+                    )
+
+                # 2. 如果没有记录，立刻挑选 30 个词并创建占位记录
+                # 策略：(已到期的词 + 新词) 混合，优先选到期最久的
+                cursor.execute("""
+                    SELECT * FROM saved_words 
+                    WHERE due <= NOW() OR reps = 0
+                    ORDER BY 
+                        (CASE WHEN reps = 0 THEN 1 ELSE 0 END) ASC, -- 到期词优先 (0), 新词次之 (1)
+                        due ASC 
+                    LIMIT 30
+                """)
+                word_rows = cursor.fetchall()
+                if not word_rows:
+                    return TodayReviewResponse(article=None, words=[], is_new_article=True)
+
+                words = [format_saved_word(r) for r in word_rows]
+                word_ids = [w.id for w in words]
+
+                # 创建占位记录
+                sql = "INSERT INTO review_articles (review_date, title, content, article_type, words_json) VALUES (%s, %s, %s, %s, %s)"
+                cursor.execute(sql, (
+                    today,
+                    f"{today} 复习计划",
+                    "",  # 空内容，等待 AI 导入
+                    "none",
+                    json.dumps(word_ids)
+                ))
+                article_id = cursor.lastrowid
+                connection.commit()
+
+                return TodayReviewResponse(
+                    article=ReviewArticle(
+                        id=article_id,
+                        review_date=today,
+                        title=f"{today} 复习计划",
+                        content="",
+                        article_type="none",
+                        words_json=word_ids,
+                        created_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    ),
+                    words=words,
+                    is_new_article=True
+                )
+        finally:
+            connection.close()
+    except Exception as e:
+        print(f"Review Today Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/fastapi/review/prompt", response_model=ReviewPromptResponse)
+async def get_review_prompt():
+    """获取今日复习单词的 Prompt，锁定单词队列"""
+    try:
+        connection = get_db_connection()
+        try:
+            with connection.cursor() as cursor:
+                today = date.today().isoformat()
+                cursor.execute("SELECT words_json FROM review_articles WHERE review_date = %s", (today,))
+                row = cursor.fetchone()
+                
+                if row:
+                    word_ids = json.loads(row['words_json'])
+                    placeholders = ', '.join(['%s'] * len(word_ids))
+                    cursor.execute(f"SELECT * FROM saved_words WHERE id IN ({placeholders})", tuple(word_ids))
+                    word_rows = cursor.fetchall()
+                else:
+                    # 如果还没占位，执行逻辑选取（保持兜底）
+                    cursor.execute("""
+                        SELECT * FROM saved_words ORDER BY 
+                        CASE WHEN last_review IS NULL THEN 100 ELSE (DATEDIFF(NOW(), last_review) / scheduled_days) END DESC LIMIT 30
+                    """)
+                    word_rows = cursor.fetchall()
+
+                if not word_rows:
+                    return ReviewPromptResponse(prompt="没有待复习单词。", words=[])
+
+                words = [format_saved_word(r) for r in word_rows]
+                
+                # 构建单词元数据（移除 ID）
+                words_info = ""
+                for r in word_rows:
+                    data = json.loads(r['data']) if isinstance(r['data'], str) else r['data']
+                    meaning = data.get('contextMeaning') or data.get('m') or '未知'
+                    words_info += f"- **{r['word']}**: {meaning}\n  原句: \"{r['context']}\"\n\n"
+
+                # 提取完整 ID 数组用于嵌入 JSON 结构
+                word_ids_str = ", ".join([str(r['id']) for r in word_rows])
+
+                prompt = f"""
+你是一位天才内容创作者，擅长编写极具吸引力的英语学习内容。
+今天你需要根据用户复习的 {len(word_rows)} 个单词，编写一篇文章。形式候选：播客、采访、辩论、深度博客、新闻特写。
+
+## 待包含的单词及其背景
+{words_info}
+
+## 核心任务
+1. **创作内容**: 编写一篇生动有趣的英文文章（包含对应的中文翻译）。
+2. **自然嵌入**: 单词要自然地出现在情境中。
+3. **双语格式**: Markdown 格式。先展示完整的英文版，用 `---` 分隔后展示中文翻译版。
+4. **重点突出**: 在英文版中，将这些单词用 **加粗** 标注。
+5. **对话格式**（如果是播客/采访）:
+   - 使用 `**Host:**` 和 `> **Guest:**` 来区分说话人
+   - Guest 的对话用引用符号（`>`）包裹供视觉差异。
+
+## 输出格式要求
+严格返回如下格式的 JSON：
+```json
+{{
+  "title": "双语标题",
+  "content": "Markdown 正文",
+  "article_type": "文章类型"
+}}
+```
+注意：**内容中不要包含 words_ids 字段，系统会自动处理关联**。
+"""
+                return ReviewPromptResponse(prompt=prompt.strip(), words=words)
+        finally:
+            connection.close()
+    except Exception as e:
+        print(f"Review Prompt Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/fastapi/review/import")
+async def import_review_article(request: ReviewImportRequest):
+    """用户手动导入 AI 生成的文章，更新今日记录"""
+    try:
+        connection = get_db_connection()
+        today = date.today().isoformat()
+        try:
+            with connection.cursor() as cursor:
+                # 检查记录是否存在
+                cursor.execute("SELECT id FROM review_articles WHERE review_date = %s", (today,))
+                row = cursor.fetchone()
+                
+                if row:
+                    # 存在的记录直接 UPDATE，保留原来的 words_json（锁定列表）
+                    sql = "UPDATE review_articles SET title = %s, content = %s, article_type = %s WHERE id = %s"
+                    cursor.execute(sql, (request.title, request.content, request.article_type, row['id']))
+                else:
+                    # 如果不存在（比如用户跳过了 today 接口），则创建并根据请求更新
+                    # 但通常Today已经创建了占位，这里作为兜底
+                    sql = "INSERT INTO review_articles (review_date, title, content, article_type, words_json) VALUES (%s, %s, %s, %s, %s)"
+                    words_ids = request.words_ids or [] # 如果有传就用传的
+                    cursor.execute(sql, (today, request.title, request.content, request.article_type, json.dumps(words_ids)))
+                
+                connection.commit()
+            return {"status": "success"}
+        finally:
+            connection.close()
+    except Exception as e:
+        print(f"Import Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/fastapi/review/feedback")
+async def review_feedback(request: FSRSFeedbackRequest):
+    """用户提交复习反馈，更新 FSRS 数值"""
+    try:
+        connection = get_db_connection()
+        try:
+            with connection.cursor() as cursor:
+                # 1. 获取单词当前状态
+                cursor.execute("SELECT * FROM saved_words WHERE id = %s", (request.word_id,))
+                word = cursor.fetchone()
+                if not word:
+                    raise HTTPException(status_code=404, detail="Word not found")
+
+                # 2. 检查单日单次限制
+                now = datetime.now()
+                if word['last_review'] and word['last_review'].date() == now.date():
+                    return {"message": "Already reviewed today", "id": request.word_id}
+
+                # 3. FSRS 计算
+                rating = request.rating # 1-3
+                # 映射用户评分到 FSRS 4 级 (1: Again, 2: Hard, 3: Good, 4: Easy)
+                # 用户只有三个选项，映射为: 记得 -> 3(Good), 完全熟悉 -> 4(Easy), 忘记 -> 1(Again)
+                fsrs_rating = 1
+                if rating == 2: fsrs_rating = 3
+                if rating == 3: fsrs_rating = 4
+
+                if word['reps'] == 0 or word['last_review'] is None:
+                    # 第一次复习 (新词)
+                    new_stability = FSRSCore.init_stability(fsrs_rating)
+                    new_difficulty = FSRSCore.init_difficulty(fsrs_rating)
+                else:
+                    # 后续复习
+                    elapsed = (now - word['last_review']).days
+                    r = math.pow(0.9, elapsed / word['stability']) if word['stability'] > 0 else 0
+                    new_stability = FSRSCore.next_stability(word['stability'], word['difficulty'], r, fsrs_rating)
+                    new_difficulty = FSRSCore.next_difficulty(word['difficulty'], fsrs_rating)
+
+                new_interval = FSRSCore.next_interval(new_stability)
+                
+                # 更新数据库
+                cursor.execute("""
+                    UPDATE saved_words SET 
+                    stability = %s, 
+                    difficulty = %s, 
+                    elapsed_days = DATEDIFF(NOW(), IFNULL(last_review, created_at)), 
+                    scheduled_days = %s,
+                    last_review = %s,
+                    reps = reps + 1,
+                    state = %s
+                    WHERE id = %s
+                """, (new_stability, new_difficulty, new_interval, now, 2 if fsrs_rating > 1 else 1, request.word_id))
+                
+            connection.commit()
+            return {"status": "success", "next_review_days": new_interval}
+        finally:
+            connection.close()
+    except Exception as e:
+        print(f"Feedback Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 

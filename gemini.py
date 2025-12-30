@@ -13,7 +13,8 @@ from schemas import (
     QuickLookupResult,
     RapidLookupResult,
     TranslateResult,
-    BlogSummaryResult
+    BlogSummaryResult,
+    ReviewArticle
 )
 
 try:
@@ -548,4 +549,76 @@ async def generate_daily_summary_service(words: List[dict]) -> BlogSummaryResult
             title="生成失败",
             prologue="AI 在尝试深入了解这些单词背景时遇到了一些挑战。",
             content=f"错误详情: {str(e)}\n\n{words_info}"
+        )
+
+async def generate_review_article_service(words: List[dict]) -> ReviewArticle:
+    """为 FSRS 复习模式生成每日趣味文章 (播客、辩论、采访、博客等)"""
+    model = DEFAULT_MODEL
+    
+    # 随机选择文章类型
+    import random
+    types_list = [
+        ("podcast", "播客"), 
+        ("interview", "采访"), 
+        ("debate", "辩论"), 
+        ("blog", "深度博客"),
+        ("news", "新闻特写")
+    ]
+    article_type_code, article_type_name = random.choice(types_list)
+
+    # 构建单词元数据
+    words_info = ""
+    for w in words:
+        data = json.loads(w['data']) if isinstance(w['data'], str) else w['data']
+        meaning = data.get('contextMeaning') or data.get('m') or '未知'
+        words_info += f"- Word: {w['word']}\n  Meaning: {meaning}\n  Context: {w['context']}\n"
+
+    prompt = f"""
+    你是一位天才内容创作者，擅长编写极具吸引力的英语学习内容。
+    今天你需要根据用户复习的 30 个单词，编写一篇文章，形式为：**{article_type_name}**。
+
+    **待包含的单词及其背景**:
+    {words_info}
+
+    **核心任务**:
+    1. **创作内容**: 编写一篇生动有趣的英文文章（包含对应的中文翻译）。
+    2. **自然嵌入**: 绝对不要生硬地罗列单词，要让这 30 个单词自然地出现在情境中。
+    3. **利用背景**: 参考提供的 `Context` (语境)，如果某个词是在 YouTube 视频中出现的，可以在文中提及相关的背景话题。
+    4. **双语格式**: 使用 Markdown 编写。先展示完整的英文版，然后是中文翻译版。
+    5. **重点突出**: 在英文版中，将这 30 个单词用 **加粗** 标注。
+
+    **输出格式**: 严格 JSON，匹配 Schema。
+    `title`: 给文章起一个吸引人的双语标题。
+    `content`: Markdown 格式的文章正文。
+    `article_type`: 固定为 "{article_type_code}"。
+
+    请注意：文章要有深度，不要太幼稚。如果是辩论，请展现两种不同的观点；如果是播客，请展现两位主持人之间的碰撞。
+    """
+
+    try:
+        response = await client.aio.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=ReviewArticle,
+                thinking_config=types.ThinkingConfig(thinking_level='low'), 
+            )
+        )
+        if response.parsed:
+            return response.parsed
+        
+        return ReviewArticle(
+            title="今日单词复习",
+            content="文章生成失败，但你可以直接在此复习你的单词列表。",
+            article_type=article_type_code,
+            words_json=[]
+        )
+    except Exception as e:
+        print(f"Review Generation Error: {e}")
+        return ReviewArticle(
+            title="AI 创作暂时休息中",
+            content=f"由于技术原因未能生成文章。错误: {str(e)}",
+            article_type="none",
+            words_json=[]
         )

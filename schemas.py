@@ -153,6 +153,14 @@ class SavedWord(BaseModel):
     data: dict
     created_at: Optional[str] = None
     note_id: Optional[int] = None
+    # FSRS fields
+    stability: float = 0.0
+    difficulty: float = 0.0
+    elapsed_days: int = 0
+    scheduled_days: int = 0
+    last_review: Optional[str] = None
+    reps: int = 0
+    state: int = 0
 
 class SavedWordsResponse(BaseModel):
     words: List[SavedWord]
@@ -206,3 +214,33 @@ class VideoNotebookUpdate(BaseModel):
     video_id: Optional[str] = None
     srt_content: Optional[str] = None
     thumbnail_url: Optional[str] = None
+
+# --- FSRS Review Schemas ---
+class ReviewArticle(BaseModel):
+    id: Optional[int] = None
+    review_date: Optional[str] = None
+    title: str
+    content: str
+    article_type: str
+    words_json: List[int]
+    is_completed: bool = False
+    created_at: Optional[str] = None
+
+class TodayReviewResponse(BaseModel):
+    article: Optional[ReviewArticle] = None
+    words: List[SavedWord]
+    is_new_article: bool
+
+class ReviewPromptResponse(BaseModel):
+    prompt: str
+    words: List[SavedWord]
+
+class ReviewImportRequest(BaseModel):
+    title: str
+    content: str
+    article_type: str
+    words_ids: Optional[List[int]] = None
+
+class FSRSFeedbackRequest(BaseModel):
+    word_id: int
+    rating: int  # 1: Again/Forgot, 2: Hard/Good, 3: Easy/Mastered
