@@ -144,6 +144,7 @@ class TranslateRequest(BaseModel):
 class TranslateResult(BaseModel):
     translation: str
 
+
 # --- Saved Words Schemas ---
 class SavedWord(BaseModel):
     id: int
@@ -244,3 +245,34 @@ class ReviewImportRequest(BaseModel):
 class FSRSFeedbackRequest(BaseModel):
     word_id: int
     rating: int  # 1: Again/Forgot, 2: Hard/Good, 3: Easy/Mastered
+
+# --- Reading Notebook Schemas ---
+class ReadingNotebookCreate(BaseModel):
+    title: str
+    content: str
+    source_url: Optional[str] = None
+    cover_image_url: Optional[str] = None
+    description: Optional[str] = None
+    word_count: Optional[int] = 0
+
+class ReadingNotebook(BaseModel):
+    id: int
+    title: str
+    content: Optional[str] = None
+    source_url: Optional[str] = None
+    cover_image_url: Optional[str] = None
+    description: Optional[str] = None
+    word_count: int
+    created_at: str
+    updated_at: str
+
+class ReadingNotebookListResponse(BaseModel):
+    notebooks: List[ReadingNotebook]
+
+class ReadingNotebookUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    source_url: Optional[str] = None
+    cover_image_url: Optional[str] = None
+    description: Optional[str] = None
+    word_count: Optional[int] = None

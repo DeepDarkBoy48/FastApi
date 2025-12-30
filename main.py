@@ -20,6 +20,7 @@ from schemas import (
     SavedWord, SavedWordsResponse,
     DailyNote, DailyNotesResponse, NoteDetailResponse,
     VideoNotebook, VideoNotebookCreate, VideoNotebookListResponse, VideoNotebookUpdate,
+    ReadingNotebook, ReadingNotebookCreate, ReadingNotebookListResponse, ReadingNotebookUpdate,
     TodayReviewResponse, ReviewArticle, FSRSFeedbackRequest,
     ReviewPromptResponse, ReviewImportRequest
 )
@@ -182,6 +183,8 @@ async def translate_endpoint(request: TranslateRequest):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
 
 
 @app.get("/fastapi/daily-notes", response_model=DailyNotesResponse)
@@ -547,6 +550,157 @@ async def delete_notebook(notebook_id: int):
         print(f"Delete Notebook Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# --- Reading Notebook Endpoints ---
+
+@app.post("/fastapi/reading-notebooks", response_model=ReadingNotebook)
+async def create_reading_notebook(notebook: ReadingNotebookCreate):
+    """创建新的精读笔记本"""
+    try:
+        connection = get_db_connection()
+        try:
+            with connection.cursor() as cursor:
+                sql = """
+                    INSERT INTO reading_notebooks (title, content, source_url, cover_image_url, description, word_count)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """
+                cursor.execute(sql, (
+                    notebook.title, 
+                    notebook.content, 
+                    notebook.source_url, 
+                    notebook.cover_image_url, 
+                    notebook.description, 
+                    notebook.word_count
+                ))
+                notebook_id = cursor.lastrowid
+                
+                # 获取创建后的完整对象
+                cursor.execute("SELECT * FROM reading_notebooks WHERE id = %s", (notebook_id,))
+                new_row = cursor.fetchone()
+                
+                # 格式化日期
+                new_row['created_at'] = new_row['created_at'].strftime('%Y-%m-%d %H:%M:%S')
+                new_row['updated_at'] = new_row['updated_at'].strftime('%Y-%m-%d %H:%M:%S')
+                
+                connection.commit()
+                return ReadingNotebook(**new_row)
+        finally:
+            connection.close()
+    except Exception as e:
+        print(f"Create Reading Notebook Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/fastapi/reading-notebooks", response_model=ReadingNotebookListResponse)
+async def list_reading_notebooks():
+    """获取精读笔记本列表（不包含巨大的 content）"""
+    try:
+        connection = get_db_connection()
+        try:
+            with connection.cursor() as cursor:
+                # 注意：这里特意排除了 content 字段以减小响应体积
+                sql = """
+                    SELECT id, title, source_url, cover_image_url, description, word_count, created_at, updated_at 
+                    FROM reading_notebooks 
+                    ORDER BY created_at DESC
+                """
+                cursor.execute(sql)
+                rows = cursor.fetchall()
+                notebooks = []
+                for row in rows:
+                    row['created_at'] = row['created_at'].strftime('%Y-%m-%d %H:%M:%S')
+                    row['updated_at'] = row['updated_at'].strftime('%Y-%m-%d %H:%M:%S')
+                    # content 设为 None
+                    row['content'] = None
+                    notebooks.append(ReadingNotebook(**row))
+                return ReadingNotebookListResponse(notebooks=notebooks)
+        finally:
+            connection.close()
+    except Exception as e:
+        print(f"List Reading Notebooks Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/fastapi/reading-notebooks/{notebook_id}", response_model=ReadingNotebook)
+async def get_reading_notebook_detail(notebook_id: int):
+    """获取精读笔记本详情（包含 content）"""
+    try:
+        connection = get_db_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM reading_notebooks WHERE id = %s", (notebook_id,))
+                row = cursor.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="Reading Notebook not found")
+                
+                row['created_at'] = row['created_at'].strftime('%Y-%m-%d %H:%M:%S')
+                row['updated_at'] = row['updated_at'].strftime('%Y-%m-%d %H:%M:%S')
+                return ReadingNotebook(**row)
+        finally:
+            connection.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Get Reading Notebook Detail Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/fastapi/reading-notebooks/{notebook_id}", response_model=ReadingNotebook)
+async def update_reading_notebook(notebook_id: int, notebook: ReadingNotebookUpdate):
+    """更新精读笔记本"""
+    try:
+        connection = get_db_connection()
+        try:
+            with connection.cursor() as cursor:
+                # 获取要更新的字段及其值
+                data = notebook.model_dump(exclude_unset=True)
+                if not data:
+                    raise HTTPException(status_code=400, detail="No fields to update")
+                
+                # 构建动态 SQL
+                fields = []
+                values = []
+                for k, v in data.items():
+                    fields.append(f"{k} = %s")
+                    values.append(v)
+                
+                sql = f"UPDATE reading_notebooks SET {', '.join(fields)} WHERE id = %s"
+                values.append(notebook_id)
+                
+                cursor.execute(sql, values)
+                
+                # 获取更新后的完整数据
+                cursor.execute("SELECT * FROM reading_notebooks WHERE id = %s", (notebook_id,))
+                row = cursor.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="Reading Notebook not found")
+                
+                row['created_at'] = row['created_at'].strftime('%Y-%m-%d %H:%M:%S')
+                row['updated_at'] = row['updated_at'].strftime('%Y-%m-%d %H:%M:%S')
+                
+                connection.commit()
+                return ReadingNotebook(**row)
+        finally:
+            connection.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Update Reading Notebook Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/fastapi/reading-notebooks/{notebook_id}")
+async def delete_reading_notebook(notebook_id: int):
+    """删除精读笔记本"""
+    try:
+        connection = get_db_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM reading_notebooks WHERE id = %s", (notebook_id,))
+            connection.commit()
+            return {"status": "success"}
+        finally:
+            connection.close()
+    except Exception as e:
+        print(f"Delete Reading Notebook Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # --- FSRS Review Endpoints ---
 
 @app.get("/fastapi/review/today", response_model=TodayReviewResponse)
@@ -665,7 +819,22 @@ async def get_review_prompt():
                 for r in word_rows:
                     data = json.loads(r['data']) if isinstance(r['data'], str) else r['data']
                     meaning = data.get('contextMeaning') or data.get('m') or '未知'
-                    words_info += f"- **{r['word']}**: {meaning}\n  原句: \"{r['context']}\"\n\n"
+                    pos = data.get('partOfSpeech') or ''
+                    role = data.get('grammarRole') or ''
+                    exp = data.get('explanation') or ''
+                    others = data.get('otherMeanings') or []
+                    
+                    word_meta = {
+                        "word": r['word'],
+                        "contextMeaning": meaning,
+                        "partOfSpeech": pos,
+                        "grammarRole": role,
+                        "explanation": exp,
+                        "otherMeanings": others,
+                        "context": r['context'],
+                        "url": r['url']
+                    }
+                    words_info += f"- {json.dumps(word_meta, ensure_ascii=False)}\n"
 
                 # 提取完整 ID 数组用于嵌入 JSON 结构
                 word_ids_str = ", ".join([str(r['id']) for r in word_rows])
@@ -674,7 +843,7 @@ async def get_review_prompt():
 你是一位天才内容创作者，擅长编写极具吸引力的英语学习内容。
 今天你需要根据用户复习的 {len(word_rows)} 个单词，编写一篇文章。形式候选：播客、采访、辩论、深度博客、新闻特写。
 
-## 待包含的单词及其背景
+## 待包含的单词及其详细背景 (JSON 格式)
 {words_info}
 
 ## 核心任务
@@ -735,63 +904,5 @@ async def import_review_article(request: ReviewImportRequest):
         print(f"Import Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/fastapi/review/feedback")
-async def review_feedback(request: FSRSFeedbackRequest):
-    """用户提交复习反馈，更新 FSRS 数值"""
-    try:
-        connection = get_db_connection()
-        try:
-            with connection.cursor() as cursor:
-                # 1. 获取单词当前状态
-                cursor.execute("SELECT * FROM saved_words WHERE id = %s", (request.word_id,))
-                word = cursor.fetchone()
-                if not word:
-                    raise HTTPException(status_code=404, detail="Word not found")
 
-                # 2. 检查单日单次限制
-                now = datetime.now()
-                if word['last_review'] and word['last_review'].date() == now.date():
-                    return {"message": "Already reviewed today", "id": request.word_id}
-
-                # 3. FSRS 计算
-                rating = request.rating # 1-3
-                # 映射用户评分到 FSRS 4 级 (1: Again, 2: Hard, 3: Good, 4: Easy)
-                # 用户只有三个选项，映射为: 记得 -> 3(Good), 完全熟悉 -> 4(Easy), 忘记 -> 1(Again)
-                fsrs_rating = 1
-                if rating == 2: fsrs_rating = 3
-                if rating == 3: fsrs_rating = 4
-
-                if word['reps'] == 0 or word['last_review'] is None:
-                    # 第一次复习 (新词)
-                    new_stability = FSRSCore.init_stability(fsrs_rating)
-                    new_difficulty = FSRSCore.init_difficulty(fsrs_rating)
-                else:
-                    # 后续复习
-                    elapsed = (now - word['last_review']).days
-                    r = math.pow(0.9, elapsed / word['stability']) if word['stability'] > 0 else 0
-                    new_stability = FSRSCore.next_stability(word['stability'], word['difficulty'], r, fsrs_rating)
-                    new_difficulty = FSRSCore.next_difficulty(word['difficulty'], fsrs_rating)
-
-                new_interval = FSRSCore.next_interval(new_stability)
-                
-                # 更新数据库
-                cursor.execute("""
-                    UPDATE saved_words SET 
-                    stability = %s, 
-                    difficulty = %s, 
-                    elapsed_days = DATEDIFF(NOW(), IFNULL(last_review, created_at)), 
-                    scheduled_days = %s,
-                    last_review = %s,
-                    reps = reps + 1,
-                    state = %s
-                    WHERE id = %s
-                """, (new_stability, new_difficulty, new_interval, now, 2 if fsrs_rating > 1 else 1, request.word_id))
-                
-            connection.commit()
-            return {"status": "success", "next_review_days": new_interval}
-        finally:
-            connection.close()
-    except Exception as e:
-        print(f"Feedback Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 

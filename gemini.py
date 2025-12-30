@@ -36,6 +36,7 @@ client = genai.Client(api_key=api_key)
 # --- Model Configuration Central ---
 
 DEFAULT_MODEL = 'gemini-3-flash-preview'
+CHEAP_MODEL = 'gemini-2.5-flash-lite'
 
 
 def get_analysis_config():
@@ -61,6 +62,10 @@ def get_lookup_config():
 def get_translate_config():
     """全文/句子极速翻译模式"""
     return DEFAULT_MODEL, 'minimal'
+
+def get_crawl_config():
+    """网页抓取与排版模式 - 使用最便宜的 Lite 模型"""
+    return LITE_MODEL, 'minimal'
 
 
 
@@ -486,16 +491,28 @@ async def generate_daily_summary_service(words: List[dict]) -> BlogSummaryResult
     # 构建单词和 URL 信息字符串
     words_info = ""
     for w in words:
-        meaning = w['data'].get('contextMeaning') or w['data'].get('m') or ''
-        words_info += f"- Word: {w['word']}\n  Meaning: {meaning}\n  Sentence: {w['context']}\n"
-        url = w.get('url') or w['data'].get('url', '')
-        if url:
-            words_info += f"  Source URL: {url}\n"
-        words_info += "\n"
+        data = w['data']
+        meaning = data.get('contextMeaning') or data.get('m') or '未知'
+        pos = data.get('partOfSpeech') or ''
+        role = data.get('grammarRole') or ''
+        exp = data.get('explanation') or ''
+        others = data.get('otherMeanings') or []
+        
+        word_meta = {
+            "word": w['word'],
+            "contextMeaning": meaning,
+            "partOfSpeech": pos,
+            "grammarRole": role,
+            "explanation": exp,
+            "otherMeanings": others,
+            "context": w['context'],
+            "url": w.get('url') or data.get('url', '')
+        }
+        words_info += f"- {json.dumps(word_meta, ensure_ascii=False)}\n"
     
     prompt = f"""
     你是一位对排版美学有极致追求的英语学习播客导演。
-    以下是用户今天学习并收藏的英语单词，以及它们出现的具体语境和来源链接：
+    以下是用户今天学习并收藏的英语单词，以及它们详细的背景元数据 (JSON 格式)：
     
     {words_info}
     
@@ -571,13 +588,27 @@ async def generate_review_article_service(words: List[dict]) -> ReviewArticle:
     for w in words:
         data = json.loads(w['data']) if isinstance(w['data'], str) else w['data']
         meaning = data.get('contextMeaning') or data.get('m') or '未知'
-        words_info += f"- Word: {w['word']}\n  Meaning: {meaning}\n  Context: {w['context']}\n"
+        pos = data.get('partOfSpeech') or ''
+        role = data.get('grammarRole') or ''
+        exp = data.get('explanation') or ''
+        others = data.get('otherMeanings') or []
+        
+        word_meta = {
+            "word": w['word'],
+            "contextMeaning": meaning,
+            "partOfSpeech": pos,
+            "grammarRole": role,
+            "explanation": exp,
+            "otherMeanings": others,
+            "context": w['context']
+        }
+        words_info += f"- {json.dumps(word_meta, ensure_ascii=False)}\n"
 
     prompt = f"""
     你是一位天才内容创作者，擅长编写极具吸引力的英语学习内容。
     今天你需要根据用户复习的 30 个单词，编写一篇文章，形式为：**{article_type_name}**。
 
-    **待包含的单词及其背景**:
+    **待包含的单词及其详细背景 (JSON 格式)**:
     {words_info}
 
     **核心任务**:
@@ -622,3 +653,4 @@ async def generate_review_article_service(words: List[dict]) -> ReviewArticle:
             article_type="none",
             words_json=[]
         )
+
