@@ -30,8 +30,8 @@ app = FastAPI()
 
 # Database configuration
 DB_CONFIG = {
-    # 'host': '47.79.43.73',
-    'host': 'mysql-container',  
+    'host': '47.79.43.73',
+    # 'host': 'mysql-container',  
     'user': 'root',
     'password': 'aZ9s8f7G3j2kL5mN',
     'database': 'smashenglish',
@@ -42,8 +42,8 @@ DB_CONFIG = {
 def get_db_connection():
     return pymysql.connect(**DB_CONFIG)
 
-def save_word_to_db(word: str, context: str, data: dict, url: str = None):
-    """Helper function to save word lookup result to database and link to daily note"""
+def save_word_to_db(word: str, context: str, data: dict, url: str = None, reading_id: int = None, video_id: int = None):
+    """Helper function to save word lookup result to database and link to notes"""
     try:
         connection = get_db_connection()
         today = date.today().isoformat()
@@ -72,9 +72,9 @@ def save_word_to_db(word: str, context: str, data: dict, url: str = None):
                     )
                     note_id = cursor.lastrowid
                 
-                # 2. 插入单词，带上 note_id 和 url
-                sql = "INSERT INTO saved_words (word, context, url, data, note_id) VALUES (%s, %s, %s, %s, %s)"
-                cursor.execute(sql, (word, context, url, json.dumps(data, ensure_ascii=False), note_id))
+                # 2. 插入单词，带上 note_id, url 和 notebook ids
+                sql = "INSERT INTO saved_words (word, context, url, data, note_id, reading_id, video_id) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+                cursor.execute(sql, (word, context, url, json.dumps(data, ensure_ascii=False), note_id, reading_id, video_id))
             
             connection.commit()
         finally:
@@ -108,6 +108,8 @@ def format_saved_word(row):
         data=parsed_data,
         created_at=row['created_at'].strftime('%Y-%m-%d %H:%M:%S') if row['created_at'] else None,
         note_id=row['note_id'],
+        reading_id=row.get('reading_id'),
+        video_id=row.get('video_id'),
         stability=row['stability'],
         difficulty=row['difficulty'],
         elapsed_days=row['elapsed_days'],
@@ -161,7 +163,14 @@ async def quick_lookup(request: QuickLookupRequest):
     try:
         result = await gemini.quick_lookup_service(request.word, request.context)
         # 异步/后台保存
-        save_word_to_db(request.word, request.context, result.model_dump(), request.url)
+        save_word_to_db(
+            request.word, 
+            request.context, 
+            result.model_dump(), 
+            request.url,
+            request.reading_id,
+            request.video_id
+        )
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

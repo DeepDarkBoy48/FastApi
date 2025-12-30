@@ -111,6 +111,8 @@ class QuickLookupRequest(BaseModel):
     word: str = Field(description="The word to look up")
     context: str = Field(description="The sentence context where the word appears")
     url: Optional[str] = Field(None, description="The original URL where the word was found")
+    reading_id: Optional[int] = Field(None, description="Associated reading notebook ID")
+    video_id: Optional[int] = Field(None, description="Associated video notebook ID")
 
 class OtherMeaning(BaseModel):
     meaning: str = Field(description="Other common meaning in Simplified Chinese")
@@ -154,6 +156,8 @@ class SavedWord(BaseModel):
     data: dict
     created_at: Optional[str] = None
     note_id: Optional[int] = None
+    reading_id: Optional[int] = None
+    video_id: Optional[int] = None
     # FSRS fields
     stability: float = 0.0
     difficulty: float = 0.0
