@@ -382,7 +382,9 @@ async def quick_lookup_service(word: str, context: str) -> QuickLookupResult:
     1. **contextMeaning**: 给出这个词在当前上下文中的**具体中文释义**（简洁，1-2个词）。
     2. **partOfSpeech**: 给出这个词在当前语境下的**精准词性缩写**（如：及物动词 vt., 不及物动词 vi., 名词 n., 形容词 adj., 副词 adv., 介词 prep., 连词 conj. 等）。
     3. **grammarRole**: 给出这个词在句子中的**语法成分**（如：主语、谓语、宾语、定语、状语、表语、宾补、同位语等）或**固定搭配/短语**。
-    4. **explanation**: 简要解释为什么是这个意思及其在句中的用法细节。
+    4. **explanation**: 结合语境进行地道翻译与深度解析。
+       - **全文翻译(必须)**: 首先给出整个原句的地道、口语化的中文翻译。
+       - **用法解析**: 简要解释单词为什么是这个意思及其在句中的具体用法细节（如：是并列结构吗？指代什么？）。
        - 如果涉及固定搭配（如 "upload...to..."），请务必指出来。
        - 结合上下文背景，说明该词传达的语气或具体指代的对象。
     5. **otherMeanings**: 提供该单词的**其他常见且高频**的释义。
@@ -398,7 +400,7 @@ async def quick_lookup_service(word: str, context: str) -> QuickLookupResult:
       "contextMeaning": "素材，视频剪辑",
       "partOfSpeech": "n.",
       "grammarRole": "宾语 (与 upload 构成动宾短语)",
-      "explanation": "在句子中，'footage' 指的是拍摄好的视频素材。这里的固定搭配'upload your footage to YouTube'意为'将你的视频素材上传到YouTube'，其中'footage'特指已完成拍摄、准备进行后期制作或直接上传的视频内容。",
+      "explanation": "【句子翻译】在这个句子中意为：‘将你的视频素材上传到 YouTube’。\\n\\n【解析】这里 'footage' 指的是拍摄好的视频素材。固定搭配 'upload your footage to YouTube' 展示了其在数字媒体语境下的典型用法，特指已完成拍摄、准备进行后期制作或直接上传的视频内容。",
       "otherMeanings": [
         {{ "meaning": "英尺长度", "partOfSpeech": "n.", "example": "The room has a lot of square footage." }}
       ]
