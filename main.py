@@ -22,7 +22,8 @@ from schemas import (
     VideoNotebook, VideoNotebookCreate, VideoNotebookListResponse, VideoNotebookUpdate,
     ReadingNotebook, ReadingNotebookCreate, ReadingNotebookListResponse, ReadingNotebookUpdate,
     TodayReviewResponse, ReviewArticle, FSRSFeedbackRequest,
-    ReviewPromptResponse, ReviewImportRequest
+    ReviewPromptResponse, ReviewImportRequest,
+    SavedWordUpdate, SavedWordCreate, BatchDeleteRequest
 )
 
 
@@ -30,8 +31,8 @@ app = FastAPI()
 
 # Database configuration
 DB_CONFIG = {
-    # 'host': '47.79.43.73',
-    'host': 'mysql-container',  
+    'host': '47.79.43.73',
+    # 'host': 'mysql-container',  
     'user': 'root',
     'password': 'aZ9s8f7G3j2kL5mN',
     'database': 'smashenglish',
@@ -407,6 +408,120 @@ async def get_all_saved_words():
             connection.close()
     except Exception as e:
         print(f"Database Get All Words Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/fastapi/saved-words", response_model=SavedWord)
+async def create_saved_word(word: SavedWordCreate):
+    """手动添加收藏单词"""
+    try:
+        connection = get_db_connection()
+        try:
+            with connection.cursor() as cursor:
+                # 1. 查找或创建 note_id (如果没传)
+                note_id = word.note_id
+                if not note_id:
+                    today = date.today().isoformat()
+                    cursor.execute("SELECT id FROM daily_notes WHERE day = %s", (today,))
+                    row = cursor.fetchone()
+                    if row:
+                        note_id = row['id']
+                    else:
+                        title = f"{today} 的单词卡片"
+                        cursor.execute("INSERT INTO daily_notes (day, title, word_count) VALUES (%s, %s, %s)", (today, title, 0))
+                        note_id = cursor.lastrowid
+
+                # 2. 插入单词
+                sql = "INSERT INTO saved_words (word, context, url, data, note_id) VALUES (%s, %s, %s, %s, %s)"
+                cursor.execute(sql, (
+                    word.word, 
+                    word.context, 
+                    word.url, 
+                    json.dumps(word.data, ensure_ascii=False) if word.data else "{}", 
+                    note_id
+                ))
+                word_id = cursor.lastrowid
+                
+                # 3. 更新 word_count
+                cursor.execute("UPDATE daily_notes SET word_count = word_count + 1 WHERE id = %s", (note_id,))
+                
+                # 4. 获取完整详情
+                cursor.execute("SELECT * FROM saved_words WHERE id = %s", (word_id,))
+                row = cursor.fetchone()
+                
+            connection.commit()
+            return format_saved_word(row)
+        finally:
+            connection.close()
+    except Exception as e:
+        print(f"Create Word Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/fastapi/saved-words/{word_id}", response_model=SavedWord)
+async def update_saved_word(word_id: int, word: SavedWordUpdate):
+    """更新收藏单词"""
+    try:
+        connection = get_db_connection()
+        try:
+            with connection.cursor() as cursor:
+                data = word.model_dump(exclude_unset=True)
+                if not data:
+                    raise HTTPException(status_code=400, detail="No fields to update")
+                
+                fields = []
+                values = []
+                for k, v in data.items():
+                    if k == 'data' and v is not None:
+                        fields.append(f"{k} = %s")
+                        values.append(json.dumps(v, ensure_ascii=False))
+                    else:
+                        fields.append(f"{k} = %s")
+                        values.append(v)
+                
+                sql = f"UPDATE saved_words SET {', '.join(fields)} WHERE id = %s"
+                values.append(word_id)
+                cursor.execute(sql, values)
+                
+                cursor.execute("SELECT * FROM saved_words WHERE id = %s", (word_id,))
+                row = cursor.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="Word not found")
+            connection.commit()
+            return format_saved_word(row)
+        finally:
+            connection.close()
+    except Exception as e:
+        print(f"Update Word Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/fastapi/saved-words/batch-delete")
+async def batch_delete_words(request: BatchDeleteRequest):
+    """批量删除收藏的单词"""
+    try:
+        connection = get_db_connection()
+        try:
+            with connection.cursor() as cursor:
+                if not request.word_ids:
+                    return {"status": "success", "count": 0}
+                
+                # 为了正确更新 daily_notes 的 word_count，我们需要按 note_id 分组统计删除数量
+                placeholders = ', '.join(['%s'] * len(request.word_ids))
+                cursor.execute(f"SELECT note_id, COUNT(*) as cnt FROM saved_words WHERE id IN ({placeholders}) GROUP BY note_id", tuple(request.word_ids))
+                counts = cursor.fetchall()
+                
+                # 执行删除
+                cursor.execute(f"DELETE FROM saved_words WHERE id IN ({placeholders})", tuple(request.word_ids))
+                
+                # 更新 counts
+                for item in counts:
+                    if item['note_id']:
+                        cursor.execute("UPDATE daily_notes SET word_count = GREATEST(0, word_count - %s) WHERE id = %s", (item['cnt'], item['note_id']))
+                
+            connection.commit()
+            return {"status": "success", "count": len(request.word_ids)}
+        finally:
+            connection.close()
+    except Exception as e:
+        print(f"Batch Delete Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -170,6 +170,23 @@ class SavedWord(BaseModel):
 class SavedWordsResponse(BaseModel):
     words: List[SavedWord]
 
+class SavedWordUpdate(BaseModel):
+    word: Optional[str] = None
+    context: Optional[str] = None
+    url: Optional[str] = None
+    data: Optional[dict] = None
+    note_id: Optional[int] = None
+
+class SavedWordCreate(BaseModel):
+    word: str
+    context: str
+    url: Optional[str] = None
+    data: Optional[dict] = None
+    note_id: Optional[int] = None
+
+class BatchDeleteRequest(BaseModel):
+    word_ids: List[int]
+
 class DailyNote(BaseModel):
     id: int
     title: Optional[str] = None
