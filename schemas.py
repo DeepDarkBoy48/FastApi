@@ -143,6 +143,12 @@ class RapidLookupResult(BaseModel):
 class TranslateRequest(BaseModel):
     text: str
 
+class AdvancedTranslateRequest(BaseModel):
+    text: str
+    source_lang: str = "zh"
+    target_lang: str = "en"
+    custom_prompt: Optional[str] = None
+
 class TranslateResult(BaseModel):
     translation: str
 

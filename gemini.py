@@ -12,7 +12,7 @@ from schemas import (
     ChatRequest,
     QuickLookupResult,
     RapidLookupResult,
-    TranslateResult,
+    TranslateRequest, AdvancedTranslateRequest, TranslateResult,
     BlogSummaryResult,
     ReviewArticle
 )
@@ -27,7 +27,14 @@ if not api_key:
     print("Warning: GEMINI_API_KEY not found in environment. AI features will fail.")
     api_key = "MISSING_API_KEY"
 
-client = genai.Client(api_key=api_key)
+# Global default client
+default_client = genai.Client(api_key=api_key)
+
+def get_client(user_api_key: Optional[str] = None):
+    """根据是否提供用户 API Key 返回对应的 Client"""
+    if user_api_key:
+        return genai.Client(api_key=user_api_key)
+    return default_client
 
 # --- Existing Subtitle Logic ---
 
@@ -69,8 +76,9 @@ def get_crawl_config():
 
 
 
-async def analyze_sentence_service(sentence: str) -> AnalysisResult:
+async def analyze_sentence_service(sentence: str, user_api_key: Optional[str] = None) -> AnalysisResult:
     model, thinking_level = get_analysis_config()
+    client = get_client(user_api_key)
     
     prompt = f"""
     你是一位精通语言学和英语教学的专家 AI。请分析以下英语句子： "{sentence}"。
@@ -153,8 +161,9 @@ async def analyze_sentence_service(sentence: str) -> AnalysisResult:
         raise Exception("无法分析该句子。请检查网络或 API Key 设置。")
 
 
-async def lookup_word_service(word: str) -> DictionaryResult:
+async def lookup_word_service(word: str, user_api_key: Optional[str] = None) -> DictionaryResult:
     model, thinking_level = get_dictionary_config()
+    client = get_client(user_api_key)
 
     prompt = f"""
     Act as a professional learner's dictionary specifically tailored for students preparing for **IELTS, TOEFL, and CET-6**.
@@ -214,8 +223,9 @@ async def lookup_word_service(word: str) -> DictionaryResult:
         raise Exception("无法查询该单词，请重试。")
 
 
-async def evaluate_writing_service(text: str, mode: WritingMode) -> WritingResult:
+async def evaluate_writing_service(text: str, mode: WritingMode, user_api_key: Optional[str] = None) -> WritingResult:
     model, thinking_level = get_writing_config()
+    client = get_client(user_api_key)
 
     mode_instructions = """
     **MODE: BASIC CORRECTION (基础纠错)**
@@ -305,8 +315,9 @@ async def evaluate_writing_service(text: str, mode: WritingMode) -> WritingResul
         raise Exception("写作分析失败，请检查网络或稍后再试。")
 
 
-async def chat_service(request: ChatRequest) -> str:
+async def chat_service(request: ChatRequest, user_api_key: Optional[str] = None) -> str:
     model, thinking_level = get_chat_config()
+    client = get_client(user_api_key)
     context_instruction = ""
     if request.contextType == 'sentence':
          context_instruction = f'**当前正在分析的句子**: "{request.contextContent or "用户暂未输入句子"}"。'
@@ -369,9 +380,10 @@ async def chat_service(request: ChatRequest) -> str:
         raise Exception("聊天服务暂时不可用。")
 
 
-async def quick_lookup_service(word: str, context: str) -> QuickLookupResult:
+async def quick_lookup_service(word: str, context: str, user_api_key: Optional[str] = None) -> QuickLookupResult:
     """快速上下文查词服务 - 给出单词在上下文中的释义和解释"""
     model, thinking_level = get_lookup_config()
+    client = get_client(user_api_key)
 
     prompt = f"""
     你是一位英语教学专家。请分析单词 "{word}" 在以下句子上下文中的具体含义、词性、语法成分和用法：
@@ -431,9 +443,10 @@ async def quick_lookup_service(word: str, context: str) -> QuickLookupResult:
         raise Exception("快速查词失败，请重试。")
 
 
-async def rapid_lookup_service(word: str, context: str) -> RapidLookupResult:
+async def rapid_lookup_service(word: str, context: str, user_api_key: Optional[str] = None) -> RapidLookupResult:
     """极速查词服务 - 极致简短的 Prompt 以提高响应速度"""
     model, thinking_level = get_lookup_config()
+    client = get_client(user_api_key)
     
     # 使用更快的模型或配置
     # 强制不使用 thinking 以减少延迟
@@ -460,9 +473,10 @@ async def rapid_lookup_service(word: str, context: str) -> RapidLookupResult:
         # 返回一个降级的响应
         return RapidLookupResult(m="查询失败", p="?")
 
-async def translate_service(text: str) -> TranslateResult:
+async def translate_service(text: str, user_api_key: Optional[str] = None) -> TranslateResult:
     """极速翻译服务 - 将英文句子翻译为地道的中文"""
     model, thinking_level = get_translate_config()
+    client = get_client(user_api_key)
 
     system_instruction = """
     你是一个极速翻译助手。
@@ -486,9 +500,50 @@ async def translate_service(text: str) -> TranslateResult:
         return TranslateResult(translation=response.text.strip())
     except Exception as e:
         print(f"Translate API Error: {e}")
-async def generate_daily_summary_service(words: List[dict]) -> BlogSummaryResult:
+        return TranslateResult(translation="翻译失败")
+
+async def translate_advanced_service(request: AdvancedTranslateRequest, user_api_key: Optional[str] = None) -> TranslateResult:
+    """高级翻译服务 - 支持多语言切换与自定义 Prompt 指令"""
+    model, thinking_level = get_translate_config()
+    client = get_client(user_api_key)
+
+    system_instruction = f"""
+    你是一个全能翻译专家。
+    任务是将用户的输入从所选源语言翻译为目标语言。
+    源语言(ID): {request.source_lang}
+    目标语言(ID): {request.target_lang}
+    
+    指令要求:
+    - 只输出翻译后的结果，不要有任何额外的解释或对话。
+    - 保持原文的语气和语义。
+    - 如果提供了自定义指令，请严格遵循指令来调整输出风格（如商务、儿童、流利等）。
+    """
+    
+    prompt = request.text
+    if request.custom_prompt:
+        prompt = f"指令: {request.custom_prompt}\n内容: {request.text}"
+
+    try:
+        response = await client.aio.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                thinking_config=types.ThinkingConfig(thinking_level=thinking_level),
+            )
+        )
+        
+        if not response.text:
+            raise ValueError("Empty response from Gemini")
+        
+        return TranslateResult(translation=response.text.strip())
+    except Exception as e:
+        print(f"Advanced Translate API Error: {e}")
+        raise Exception("翻译失败，请重试。")
+async def generate_daily_summary_service(words: List[dict], user_api_key: Optional[str] = None) -> BlogSummaryResult:
     """用 AI 结合 Google 搜索对当天的单词及来源链接进行串联总结 (结构化输出)"""
     model = DEFAULT_MODEL
+    client = get_client(user_api_key)
     
     # 构建单词和 URL 信息字符串
     words_info = ""
@@ -570,9 +625,10 @@ async def generate_daily_summary_service(words: List[dict]) -> BlogSummaryResult
             content=f"错误详情: {str(e)}\n\n{words_info}"
         )
 
-async def generate_review_article_service(words: List[dict]) -> ReviewArticle:
+async def generate_review_article_service(words: List[dict], user_api_key: Optional[str] = None) -> ReviewArticle:
     """为 FSRS 复习模式生成每日趣味文章 (播客、辩论、采访、博客等)"""
     model = DEFAULT_MODEL
+    client = get_client(user_api_key)
     
     # 随机选择文章类型
     import random
