@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Annotated, Optional, List
 import os
@@ -139,7 +139,7 @@ async def get_user_api_key(x_gemini_api_key: Annotated[Optional[str], Header()] 
 # --- SmashEnglish Endpoints ---
 
 @app.post("/fastapi/analyze", response_model=AnalysisResult)
-async def analyze_sentence(request: AnalysisRequest, user_api_key: Annotated[Optional[str], Header()] = None):
+async def analyze_sentence(request: AnalysisRequest, user_api_key: Optional[str] = Depends(get_user_api_key)):
     try:
         result = await gemini.analyze_sentence_service(request.sentence, user_api_key)
         return result
@@ -147,7 +147,7 @@ async def analyze_sentence(request: AnalysisRequest, user_api_key: Annotated[Opt
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/fastapi/lookup", response_model=DictionaryResult)
-async def lookup_word(request: LookupRequest, user_api_key: Annotated[Optional[str], Header()] = None):
+async def lookup_word(request: LookupRequest, user_api_key: Optional[str] = Depends(get_user_api_key)):
     try:
         result = await gemini.lookup_word_service(request.word, user_api_key)
         return result
@@ -155,7 +155,7 @@ async def lookup_word(request: LookupRequest, user_api_key: Annotated[Optional[s
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/fastapi/writing", response_model=WritingResult)
-async def evaluate_writing(request: WritingRequest, user_api_key: Annotated[Optional[str], Header()] = None):
+async def evaluate_writing(request: WritingRequest, user_api_key: Optional[str] = Depends(get_user_api_key)):
     try:
         result = await gemini.evaluate_writing_service(request.text, request.mode, user_api_key)
         return result
@@ -163,7 +163,7 @@ async def evaluate_writing(request: WritingRequest, user_api_key: Annotated[Opti
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/fastapi/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest, user_api_key: Annotated[Optional[str], Header()] = None):
+async def chat(request: ChatRequest, user_api_key: Optional[str] = Depends(get_user_api_key)):
     try:
         response_text = await gemini.chat_service(request, user_api_key)
         return ChatResponse(response=response_text)
@@ -172,7 +172,7 @@ async def chat(request: ChatRequest, user_api_key: Annotated[Optional[str], Head
 
 
 @app.post("/fastapi/quick-lookup", response_model=QuickLookupResult)
-async def quick_lookup(request: QuickLookupRequest, user_api_key: Annotated[Optional[str], Header()] = None):
+async def quick_lookup(request: QuickLookupRequest, user_api_key: Optional[str] = Depends(get_user_api_key)):
     """快速上下文查词 - 返回词条并自动保存到数据库"""
     try:
         result = await gemini.quick_lookup_service(request.word, request.context, user_api_key)
@@ -190,7 +190,7 @@ async def quick_lookup(request: QuickLookupRequest, user_api_key: Annotated[Opti
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/fastapi/rapid-lookup", response_model=RapidLookupResult)
-async def rapid_lookup(request: RapidLookupRequest, user_api_key: Annotated[Optional[str], Header()] = None):
+async def rapid_lookup(request: RapidLookupRequest, user_api_key: Optional[str] = Depends(get_user_api_key)):
     """极简上下文查词 - 极致速度 (不保存数据库)"""
     try:
         result = await gemini.rapid_lookup_service(request.word, request.context, user_api_key)
@@ -199,7 +199,7 @@ async def rapid_lookup(request: RapidLookupRequest, user_api_key: Annotated[Opti
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/fastapi/translate", response_model=TranslateResult)
-async def translate_endpoint(request: TranslateRequest, user_api_key: Annotated[Optional[str], Header()] = None):
+async def translate_endpoint(request: TranslateRequest, user_api_key: Optional[str] = Depends(get_user_api_key)):
     """极速翻译接口"""
     try:
         result = await gemini.translate_service(request.text, user_api_key)
@@ -208,7 +208,7 @@ async def translate_endpoint(request: TranslateRequest, user_api_key: Annotated[
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/fastapi/translate-advanced", response_model=TranslateResult)
-async def translate_advanced_endpoint(request: AdvancedTranslateRequest, user_api_key: Annotated[Optional[str], Header()] = None):
+async def translate_advanced_endpoint(request: AdvancedTranslateRequest, user_api_key: Optional[str] = Depends(get_user_api_key)):
     """高级翻译接口 - 支持多语言与自定义指令"""
     try:
         result = await gemini.translate_advanced_service(request, user_api_key)
@@ -348,7 +348,7 @@ async def submit_review_feedback(request: FSRSFeedbackRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/fastapi/daily-notes/{note_id}/summarize")
-async def summarize_daily_note(note_id: int, user_api_key: Annotated[Optional[str], Header()] = None):
+async def summarize_daily_note(note_id: int, user_api_key: Optional[str] = Depends(get_user_api_key)):
     """为当天的笔记生成 AI 总结博客 (更新标题、简介和内容)"""
     try:
         connection = get_db_connection()
