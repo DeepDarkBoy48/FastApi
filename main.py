@@ -41,8 +41,8 @@ app.add_middleware(
 
 # Database configuration
 DB_CONFIG = {
-    'host': '47.79.43.73',
-    # 'host': 'mysql-container',  
+    # 'host': '47.79.43.73',
+    'host': 'mysql-container',  
     'user': 'root',
     'password': 'aZ9s8f7G3j2kL5mN',
     'database': 'smashenglish',
