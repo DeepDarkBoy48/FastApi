@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Header
+from fastapi.middleware.cors import CORSMiddleware
 from typing import Annotated, Optional, List
 import os
 import gemini
@@ -29,10 +30,19 @@ from schemas import (
 
 app = FastAPI()
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Database configuration
 DB_CONFIG = {
-    # 'host': '47.79.43.73',
-    'host': 'mysql-container',  
+    'host': '47.79.43.73',
+    # 'host': 'mysql-container',  
     'user': 'root',
     'password': 'aZ9s8f7G3j2kL5mN',
     'database': 'smashenglish',
