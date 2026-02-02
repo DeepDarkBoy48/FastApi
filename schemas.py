@@ -41,7 +41,7 @@ class AnalysisResult(BaseModel):
     mainTense: Optional[str] = Field(default=None, description="The primary tense of the sentence (e.g., 'Present Simple').")
 
 class AnalysisRequest(BaseModel):
-    sentence: str
+    sentence: str = Field(description="需要进行语法分析的英语原句")
 
 
 # --- Dictionary Schemas ---
@@ -69,7 +69,7 @@ class DictionaryResult(BaseModel):
     collocations: Optional[List[DictionaryCollocation]] = None
 
 class LookupRequest(BaseModel):
-    word: str
+    word: str = Field(description="需要查询详细词典释义的英语单词或短语")
 
 
 # --- Writing Schemas ---
@@ -87,23 +87,23 @@ class WritingResult(BaseModel):
     segments: List[WritingSegment]
 
 class WritingRequest(BaseModel):
-    text: str
-    mode: WritingMode
+    text: str = Field(description="需要润色或纠错的英语文本")
+    mode: WritingMode = Field(description="写作处理模式，目前仅支持 'fix' (基础纠错)")
 
 
 # --- Chat Schemas ---
 class Message(BaseModel):
-    role: Literal['user', 'assistant']
-    content: str
+    role: Literal['user', 'assistant'] = Field(description="消息发送者的角色：'user' (用户) 或 'assistant' (AI 助教)")
+    content: str = Field(description="消息的具体文本内容")
 
 class ChatRequest(BaseModel):
-    history: List[Message]
-    contextContent: Optional[str] = None
-    userMessage: str
-    contextType: ContextType = 'sentence'
+    history: List[Message] = Field(description="之前的对话历史记录列表")
+    contextContent: Optional[str] = Field(None, description="当前的上下文内容（如正在分析的句子或单词）")
+    userMessage: str = Field(description="用户最新发送的消息内容")
+    contextType: ContextType = Field('sentence', description="上下文类型：'sentence' (句子), 'word' (单词), 'writing' (文章)")
 
 class ChatResponse(BaseModel):
-    response: str
+    response: str = Field(description="AI 助教生成的回答内容 (支持 Markdown)")
 
 
 # --- Quick Lookup Schemas (上下文快速查词) ---
@@ -141,16 +141,16 @@ class RapidLookupResult(BaseModel):
 
 # --- Translate Schemas ---
 class TranslateRequest(BaseModel):
-    text: str
+    text: str = Field(description="需要极速翻译的源文本内容")
 
 class AdvancedTranslateRequest(BaseModel):
-    text: str
-    source_lang: str = "zh"
-    target_lang: str = "en"
-    custom_prompt: Optional[str] = None
+    text: str = Field(description="需要翻译的源文本内容")
+    source_lang: str = Field("zh", description="源语言代码，例如 'zh' (中文), 'en' (英文)")
+    target_lang: str = Field("en", description="目标语言代码")
+    custom_prompt: Optional[str] = Field(None, description="自定义翻译风格或是风格化的指令（如：'更加地道'，'商务正式'）")
 
 class TranslateResult(BaseModel):
-    translation: str
+    translation: str = Field(description="翻译后的文本结果")
 
 
 # --- Saved Words Schemas ---
