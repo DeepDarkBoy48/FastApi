@@ -41,11 +41,12 @@ app.add_middleware(
 
 # Database configuration
 DB_CONFIG = {
-    'host': os.getenv('DB_HOST', '47.79.43.73'),
-    'user': os.getenv('DB_USER', 'root'),
-    'password': os.getenv('DB_PASSWORD', 'aZ9s8f7G3j2kL5mN'),
-    'database': os.getenv('DB_DATABASE', 'smashenglish'),
-    'charset': os.getenv('DB_CHARSET', 'utf8mb4'),
+    # 'host': '47.79.43.73',
+    'host': 'mysql-container',  
+    'user': 'root',
+    'password': 'aZ9s8f7G3j2kL5mN',
+    'database': 'smashenglish',
+    'charset': 'utf8mb4',
     'cursorclass': pymysql.cursors.DictCursor
 }
 
