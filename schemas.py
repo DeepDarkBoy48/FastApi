@@ -147,7 +147,6 @@ class AdvancedTranslateRequest(BaseModel):
     text: str = Field(description="需要翻译的源文本内容")
     source_lang: str = Field("zh", description="源语言代码，例如 'zh' (中文), 'en' (英文)")
     target_lang: str = Field("en", description="目标语言代码")
-    custom_prompt: Optional[str] = Field(None, description="自定义翻译风格或是风格化的指令（如：'更加地道'，'商务正式'）")
 
 class TranslateResult(BaseModel):
     translation: str = Field(description="翻译后的文本结果")
