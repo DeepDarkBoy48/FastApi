@@ -117,7 +117,7 @@ class QuickLookupRequest(BaseModel):
 class OtherMeaning(BaseModel):
     meaning: str = Field(description="Other common meaning in Simplified Chinese")
     partOfSpeech: str = Field(description="POS for this meaning")
-    example: str = Field(description="A concise English example sentence for this meaning")
+    example: Optional[str] = Field(default="", description="A concise English example sentence for this meaning")
 
 
 class QuickLookupResult(BaseModel):
@@ -153,12 +153,24 @@ class TranslateResult(BaseModel):
 
 
 # --- Saved Words Schemas ---
+class SavedWordEncounter(BaseModel):
+    key: str
+    context: str
+    url: Optional[str] = None
+    note_id: Optional[int] = None
+    reading_id: Optional[int] = None
+    video_id: Optional[int] = None
+    created_at: Optional[str] = None
+    lookup: QuickLookupResult
+
+
 class SavedWord(BaseModel):
     id: int
     word: str
     context: str
     url: Optional[str] = None
     data: dict
+    encounters: List[SavedWordEncounter] = Field(default_factory=list)
     created_at: Optional[str] = None
     note_id: Optional[int] = None
     reading_id: Optional[int] = None

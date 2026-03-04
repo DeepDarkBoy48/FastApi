@@ -8,6 +8,7 @@ from pymysql.cursors import DictCursor
 import json
 from datetime import date, datetime, timedelta, timezone
 import math
+import hashlib
 from fsrs import Scheduler, Card, Rating, State
 from dotenv import load_dotenv
 from schemas import (
@@ -42,7 +43,7 @@ app.add_middleware(
 # Database configuration
 DB_CONFIG = {
     # 'host': '47.79.43.73',
-    'host': 'mysql-container',  
+    'host': 'mysql-container',
     'user': 'root',
     'password': 'aZ9s8f7G3j2kL5mN',
     'database': 'smashenglish',
@@ -53,40 +54,315 @@ DB_CONFIG = {
 def get_db_connection():
     return pymysql.connect(**DB_CONFIG)
 
+def normalize_word(word: str) -> str:
+    return (word or "").strip().lower()
+
+
+def normalize_context(context: str) -> str:
+    return " ".join((context or "").strip().split()).lower()
+
+
+def datetime_to_str(value) -> str:
+    if isinstance(value, datetime):
+        return value.strftime('%Y-%m-%d %H:%M:%S')
+    if value is None:
+        return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    return str(value)
+
+
+def parse_json_obj(value) -> dict:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def build_source_key(url: Optional[str], reading_id: Optional[int], video_id: Optional[int], note_id: Optional[int]) -> str:
+    if reading_id is not None:
+        return f"reading:{reading_id}"
+    if video_id is not None:
+        return f"video:{video_id}"
+    if url:
+        return f"url:{url.strip()}"
+    if note_id is not None:
+        return f"note:{note_id}"
+    return "manual"
+
+
+def build_encounter_key(word: str, source_key: str, context: str) -> str:
+    raw = f"{normalize_word(word)}|{source_key}|{normalize_context(context)}"
+    return hashlib.sha1(raw.encode('utf-8')).hexdigest()[:24]
+
+
+def build_lookup_payload(word: str, data: Optional[dict]) -> dict:
+    safe_data = data if isinstance(data, dict) else {}
+    other_meanings = safe_data.get('otherMeanings')
+    if not isinstance(other_meanings, list):
+        other_meanings = []
+    return {
+        "word": safe_data.get('word') or word,
+        "contextMeaning": safe_data.get('contextMeaning') or safe_data.get('m') or "",
+        "partOfSpeech": safe_data.get('partOfSpeech') or safe_data.get('p') or "",
+        "grammarRole": safe_data.get('grammarRole') or "",
+        "explanation": safe_data.get('explanation') or "",
+        "otherMeanings": other_meanings
+    }
+
+
+def sort_encounters_desc(encounters: List[dict]) -> List[dict]:
+    return sorted(encounters, key=lambda e: e.get('created_at') or '', reverse=True)
+
+
+def ensure_v2_payload(word: str, raw_payload: dict, row: Optional[dict] = None) -> dict:
+    row = row or {}
+    payload = parse_json_obj(raw_payload)
+
+    normalized_encounters: List[dict] = []
+    raw_encounters = payload.get('encounters')
+    if isinstance(raw_encounters, list):
+        for enc in raw_encounters:
+            if not isinstance(enc, dict):
+                continue
+            enc_context = enc.get('context') or row.get('context') or ""
+            enc_url = enc.get('url') or row.get('url')
+            enc_note_id = enc.get('note_id') if enc.get('note_id') is not None else row.get('note_id')
+            enc_reading_id = enc.get('reading_id') if enc.get('reading_id') is not None else row.get('reading_id')
+            enc_video_id = enc.get('video_id') if enc.get('video_id') is not None else row.get('video_id')
+            source_key = build_source_key(enc_url, enc_reading_id, enc_video_id, enc_note_id)
+            enc_key = enc.get('key') or build_encounter_key(word, source_key, enc_context)
+
+            lookup_src = enc.get('lookup') if isinstance(enc.get('lookup'), dict) else payload
+            lookup = build_lookup_payload(word, lookup_src)
+            normalized_encounters.append({
+                "key": enc_key,
+                "context": enc_context,
+                "url": enc_url,
+                "note_id": enc_note_id,
+                "reading_id": enc_reading_id,
+                "video_id": enc_video_id,
+                "created_at": datetime_to_str(enc.get('created_at') or row.get('created_at')),
+                "lookup": lookup
+            })
+
+    if not normalized_encounters:
+        fallback_context = row.get('context') or payload.get('context') or ""
+        fallback_url = row.get('url') or payload.get('url')
+        fallback_note_id = row.get('note_id')
+        fallback_reading_id = row.get('reading_id')
+        fallback_video_id = row.get('video_id')
+        source_key = build_source_key(fallback_url, fallback_reading_id, fallback_video_id, fallback_note_id)
+        normalized_encounters.append({
+            "key": build_encounter_key(word, source_key, fallback_context),
+            "context": fallback_context,
+            "url": fallback_url,
+            "note_id": fallback_note_id,
+            "reading_id": fallback_reading_id,
+            "video_id": fallback_video_id,
+            "created_at": datetime_to_str(row.get('created_at')),
+            "lookup": build_lookup_payload(word, payload)
+        })
+
+    payload = dict(payload)
+    payload['schemaVersion'] = 2
+    payload['encounters'] = sort_encounters_desc(normalized_encounters)
+    return payload
+
+
+def sync_payload_from_latest_encounter(word: str, payload: dict) -> tuple[dict, dict]:
+    encounters = payload.get('encounters') if isinstance(payload.get('encounters'), list) else []
+    encounters = sort_encounters_desc(encounters)
+    if not encounters:
+        empty_lookup = build_lookup_payload(word, {})
+        fallback = {
+            "key": build_encounter_key(word, "manual", ""),
+            "context": "",
+            "url": None,
+            "note_id": None,
+            "reading_id": None,
+            "video_id": None,
+            "created_at": datetime_to_str(None),
+            "lookup": empty_lookup
+        }
+        encounters = [fallback]
+    latest = encounters[0]
+    latest_lookup = build_lookup_payload(word, latest.get('lookup'))
+    payload = dict(payload)
+    payload['schemaVersion'] = 2
+    payload['encounters'] = encounters
+    payload.update(latest_lookup)
+    return payload, latest
+
+
+def append_or_get_encounter(
+    word: str,
+    payload: dict,
+    context: str,
+    url: Optional[str],
+    note_id: Optional[int],
+    reading_id: Optional[int],
+    video_id: Optional[int],
+    lookup_data: dict
+) -> tuple[dict, bool, dict]:
+    source_key = build_source_key(url, reading_id, video_id, note_id)
+    enc_key = build_encounter_key(word, source_key, context)
+    encounters = payload.get('encounters') if isinstance(payload.get('encounters'), list) else []
+
+    for enc in encounters:
+        if not isinstance(enc, dict):
+            continue
+        if enc.get('key') == enc_key:
+            existing_lookup = build_lookup_payload(word, enc.get('lookup'))
+            merged_lookup = dict(existing_lookup)
+            merged_lookup.update(build_lookup_payload(word, lookup_data))
+            enc['lookup'] = merged_lookup
+            return payload, False, enc
+
+    new_encounter = {
+        "key": enc_key,
+        "context": context,
+        "url": url,
+        "note_id": note_id,
+        "reading_id": reading_id,
+        "video_id": video_id,
+        "created_at": datetime_to_str(None),
+        "lookup": build_lookup_payload(word, lookup_data)
+    }
+    encounters.append(new_encounter)
+    payload['encounters'] = encounters
+    return payload, True, new_encounter
+
+
+def extract_note_ids_from_payload(payload: dict, fallback_note_id: Optional[int] = None) -> set[int]:
+    note_ids: set[int] = set()
+    encounters = payload.get('encounters') if isinstance(payload.get('encounters'), list) else []
+    for enc in encounters:
+        if not isinstance(enc, dict):
+            continue
+        note_id = enc.get('note_id')
+        if isinstance(note_id, int):
+            note_ids.add(note_id)
+    if isinstance(fallback_note_id, int):
+        note_ids.add(fallback_note_id)
+    return note_ids
+
+
+def ensure_today_note(cursor) -> int:
+    today = date.today().isoformat()
+    cursor.execute("SELECT id FROM daily_notes WHERE day = %s", (today,))
+    row = cursor.fetchone()
+    if row:
+        return row['id']
+    title = f"{today} 的单词卡片"
+    cursor.execute(
+        "INSERT INTO daily_notes (day, title, word_count) VALUES (%s, %s, %s)",
+        (today, title, 0)
+    )
+    return cursor.lastrowid
+
+
+def get_note_encounters(payload: dict, note_id: int) -> List[dict]:
+    encounters = payload.get('encounters') if isinstance(payload.get('encounters'), list) else []
+    matches = [
+        enc for enc in encounters
+        if isinstance(enc, dict) and enc.get('note_id') == note_id
+    ]
+    return sort_encounters_desc(matches)
+
+
+def decrement_note_counts(cursor, note_ids: set[int], amount: int = 1):
+    if amount <= 0:
+        return
+    for nid in note_ids:
+        cursor.execute(
+            "UPDATE daily_notes SET word_count = GREATEST(0, word_count - %s) WHERE id = %s",
+            (amount, nid)
+        )
+
+
 def save_word_to_db(word: str, context: str, data: dict, url: str = None, reading_id: int = None, video_id: int = None):
-    """Helper function to save word lookup result to database and link to notes"""
+    """Save quick lookup results by word; aggregate different sources into encounters."""
     try:
         connection = get_db_connection()
-        today = date.today().isoformat()
         try:
             with connection.cursor() as cursor:
-                # 0. 检查单词是否已存在 (避免重复保存)
-                cursor.execute("SELECT id FROM saved_words WHERE word = %s", (word,))
-                if cursor.fetchone():
-                    print(f"Word '{word}' already exists in database. Skipping insertion.")
-                    return
+                note_id = ensure_today_note(cursor)
+                context = (context or "").strip()
 
-                # 1. 检查今天是否有 note 记录
-                cursor.execute("SELECT id FROM daily_notes WHERE day = %s", (today,))
-                row = cursor.fetchone()
-                
-                if row:
-                    note_id = row['id']
-                    # 更新单词数
+                cursor.execute(
+                    "SELECT * FROM saved_words WHERE LOWER(word) = LOWER(%s) ORDER BY reps DESC, created_at DESC, id ASC LIMIT 1",
+                    (word,)
+                )
+                existing = cursor.fetchone()
+
+                if not existing:
+                    initial_row = {
+                        "context": context,
+                        "url": url,
+                        "note_id": note_id,
+                        "reading_id": reading_id,
+                        "video_id": video_id,
+                        "created_at": datetime.now()
+                    }
+                    payload = ensure_v2_payload(word, data, initial_row)
+                    payload, latest = sync_payload_from_latest_encounter(word, payload)
+
+                    sql = """
+                        INSERT INTO saved_words (word, context, url, data, note_id, reading_id, video_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """
+                    cursor.execute(sql, (
+                        word,
+                        latest.get('context', context),
+                        latest.get('url', url),
+                        json.dumps(payload, ensure_ascii=False),
+                        latest.get('note_id', note_id),
+                        latest.get('reading_id', reading_id),
+                        latest.get('video_id', video_id)
+                    ))
                     cursor.execute("UPDATE daily_notes SET word_count = word_count + 1 WHERE id = %s", (note_id,))
                 else:
-                    # 创建今天的 note
-                    title = f"{today} 的单词卡片"
-                    cursor.execute(
-                        "INSERT INTO daily_notes (day, title, word_count) VALUES (%s, %s, %s)",
-                        (today, title, 1)
+                    existing_payload = ensure_v2_payload(existing['word'], existing.get('data'), existing)
+                    note_linked_before = note_id in extract_note_ids_from_payload(existing_payload, existing.get('note_id'))
+                    updated_payload, appended, _ = append_or_get_encounter(
+                        existing['word'],
+                        existing_payload,
+                        context,
+                        url,
+                        note_id,
+                        reading_id,
+                        video_id,
+                        data
                     )
-                    note_id = cursor.lastrowid
-                
-                # 2. 插入单词，带上 note_id, url 和 notebook ids
-                sql = "INSERT INTO saved_words (word, context, url, data, note_id, reading_id, video_id) VALUES (%s, %s, %s, %s, %s, %s, %s)"
-                cursor.execute(sql, (word, context, url, json.dumps(data, ensure_ascii=False), note_id, reading_id, video_id))
-            
+                    updated_payload, latest = sync_payload_from_latest_encounter(existing['word'], updated_payload)
+
+                    update_params = [
+                        latest.get('context', existing.get('context')),
+                        latest.get('url', existing.get('url')),
+                        json.dumps(updated_payload, ensure_ascii=False),
+                        latest.get('note_id', existing.get('note_id')),
+                        latest.get('reading_id', existing.get('reading_id')),
+                        latest.get('video_id', existing.get('video_id')),
+                    ]
+                    update_sql = """
+                        UPDATE saved_words
+                        SET context = %s, url = %s, data = %s, note_id = %s, reading_id = %s, video_id = %s
+                    """
+                    # 仅在新增 encounter 时刷新收录时间，避免同来源同句去重时时间抖动
+                    if appended:
+                        update_sql += ", created_at = %s"
+                        update_params.append(datetime.now())
+                    update_sql += " WHERE id = %s"
+                    update_params.append(existing['id'])
+                    cursor.execute(update_sql, tuple(update_params))
+
+                    if appended and not note_linked_before:
+                        cursor.execute("UPDATE daily_notes SET word_count = word_count + 1 WHERE id = %s", (note_id,))
+
             connection.commit()
         finally:
             connection.close()
@@ -104,23 +380,21 @@ def get_fsrs_rating(rating: int) -> Rating:
     return Rating.Easy
 
 def format_saved_word(row):
-    """Utility to format DB row to SavedWord schema"""
-    data_val = row['data']
-    try:
-        parsed_data = json.loads(data_val) if isinstance(data_val, str) else data_val
-    except:
-        parsed_data = {}
-    
+    """Format DB row to SavedWord schema with v2 encounters + legacy mirrors."""
+    parsed_data = ensure_v2_payload(row['word'], row.get('data'), row)
+    parsed_data, latest = sync_payload_from_latest_encounter(row['word'], parsed_data)
+
     return SavedWord(
         id=row['id'],
         word=row['word'],
-        context=row['context'],
-        url=row['url'],
+        context=latest.get('context') or row.get('context') or "",
+        url=latest.get('url') or row.get('url'),
         data=parsed_data,
+        encounters=parsed_data.get('encounters') or [],
         created_at=row['created_at'].strftime('%Y-%m-%d %H:%M:%S') if row['created_at'] else None,
-        note_id=row['note_id'],
-        reading_id=row.get('reading_id'),
-        video_id=row.get('video_id'),
+        note_id=latest.get('note_id') if latest.get('note_id') is not None else row.get('note_id'),
+        reading_id=latest.get('reading_id') if latest.get('reading_id') is not None else row.get('reading_id'),
+        video_id=latest.get('video_id') if latest.get('video_id') is not None else row.get('video_id'),
         stability=row['stability'],
         difficulty=row['difficulty'],
         elapsed_days=row['elapsed_days'],
@@ -259,13 +533,15 @@ async def get_note_detail(note_id: int):
                 note_row['created_at'] = note_row['created_at'].strftime('%Y-%m-%d %H:%M:%S') if note_row['created_at'] else ""
                 note = DailyNote(**note_row)
 
-                # 2. 查找该 Note 下的所有单词
-                cursor.execute("SELECT * FROM saved_words WHERE note_id = %s ORDER BY created_at DESC", (note_id,))
+                # 2. 基于 encounters 过滤该 Note 的单词
+                cursor.execute("SELECT * FROM saved_words ORDER BY created_at DESC")
                 word_rows = cursor.fetchall()
                 words = []
                 for row in word_rows:
-                    words.append(format_saved_word(row))
-                
+                    formatted = format_saved_word(row)
+                    if get_note_encounters(formatted.data, note_id):
+                        words.append(formatted)
+
                 return NoteDetailResponse(note=note, words=words)
         finally:
             connection.close()
@@ -354,18 +630,26 @@ async def summarize_daily_note(note_id: int, user_api_key: Optional[str] = Depen
         connection = get_db_connection()
         try:
             with connection.cursor() as cursor:
-                # 1. 获取所有相关的单词
-                cursor.execute("SELECT * FROM saved_words WHERE note_id = %s", (note_id,))
+                # 1. 获取该 note 相关单词（基于 encounters）
+                cursor.execute("SELECT * FROM saved_words ORDER BY created_at DESC")
                 words_raw = cursor.fetchall()
-                if not words_raw:
-                    raise HTTPException(status_code=400, detail="No words to summarize")
-                
-                # 处理 JSON 数据字段
+
                 words = []
-                for w in words_raw:
-                    if isinstance(w['data'], str):
-                        w['data'] = json.loads(w['data'])
-                    words.append(w)
+                for row in words_raw:
+                    payload = ensure_v2_payload(row['word'], row.get('data'), row)
+                    note_encounters = get_note_encounters(payload, note_id)
+                    if not note_encounters:
+                        continue
+                    latest_encounter = note_encounters[0]
+                    words.append({
+                        "word": row['word'],
+                        "context": latest_encounter.get('context') or row.get('context') or "",
+                        "url": latest_encounter.get('url') or row.get('url'),
+                        "data": latest_encounter.get('lookup') or build_lookup_payload(row['word'], payload)
+                    })
+
+                if not words:
+                    raise HTTPException(status_code=400, detail="No words to summarize")
                 
                 # 2. 调用 Gemini 生成结构化内容
                 blog_result = await gemini.generate_daily_summary_service(words, user_api_key)
@@ -396,19 +680,89 @@ async def delete_saved_word(word_id: int):
         connection = get_db_connection()
         try:
             with connection.cursor() as cursor:
-                # 先获取 note_id 方便更新 count
-                cursor.execute("SELECT note_id FROM saved_words WHERE id = %s", (word_id,))
+                cursor.execute("SELECT * FROM saved_words WHERE id = %s", (word_id,))
                 row = cursor.fetchone()
-                if row and row['note_id']:
-                    note_id = row['note_id']
-                    cursor.execute("DELETE FROM saved_words WHERE id = %s", (word_id,))
-                    cursor.execute("UPDATE daily_notes SET word_count = GREATEST(0, word_count - 1) WHERE id = %s", (note_id,))
-                else:
-                    cursor.execute("DELETE FROM saved_words WHERE id = %s", (word_id,))
+                if not row:
+                    raise HTTPException(status_code=404, detail="Word not found")
+
+                payload = ensure_v2_payload(row['word'], row.get('data'), row)
+                affected_note_ids = extract_note_ids_from_payload(payload, row.get('note_id'))
+                cursor.execute("DELETE FROM saved_words WHERE id = %s", (word_id,))
+                decrement_note_counts(cursor, affected_note_ids, 1)
             connection.commit()
             return {"status": "success"}
         finally:
             connection.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/fastapi/saved-words/{word_id}/encounters/{encounter_key}")
+async def delete_saved_word_encounter(word_id: int, encounter_key: str):
+    """删除单词的一条来源 encounter；若无来源剩余则删除整词。"""
+    try:
+        connection = get_db_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM saved_words WHERE id = %s", (word_id,))
+                row = cursor.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="Word not found")
+
+                payload = ensure_v2_payload(row['word'], row.get('data'), row)
+                encounters = payload.get('encounters') if isinstance(payload.get('encounters'), list) else []
+                target = next((e for e in encounters if isinstance(e, dict) and e.get('key') == encounter_key), None)
+                if not target:
+                    raise HTTPException(status_code=404, detail="Encounter not found")
+
+                removed_note_id = target.get('note_id')
+                remaining = [e for e in encounters if not (isinstance(e, dict) and e.get('key') == encounter_key)]
+
+                if not remaining:
+                    cursor.execute("DELETE FROM saved_words WHERE id = %s", (word_id,))
+                    if isinstance(removed_note_id, int):
+                        decrement_note_counts(cursor, {removed_note_id}, 1)
+                    connection.commit()
+                    return {"status": "deleted", "deleted": True, "word_id": word_id}
+
+                payload['encounters'] = remaining
+                payload, latest = sync_payload_from_latest_encounter(row['word'], payload)
+
+                cursor.execute(
+                    """
+                    UPDATE saved_words
+                    SET context = %s, url = %s, data = %s, note_id = %s, reading_id = %s, video_id = %s
+                    WHERE id = %s
+                    """,
+                    (
+                        latest.get('context', row.get('context')),
+                        latest.get('url', row.get('url')),
+                        json.dumps(payload, ensure_ascii=False),
+                        latest.get('note_id', row.get('note_id')),
+                        latest.get('reading_id', row.get('reading_id')),
+                        latest.get('video_id', row.get('video_id')),
+                        word_id
+                    )
+                )
+
+                if isinstance(removed_note_id, int):
+                    still_has_note = any(
+                        isinstance(e, dict) and e.get('note_id') == removed_note_id
+                        for e in remaining
+                    )
+                    if not still_has_note:
+                        decrement_note_counts(cursor, {removed_note_id}, 1)
+
+                cursor.execute("SELECT * FROM saved_words WHERE id = %s", (word_id,))
+                updated_row = cursor.fetchone()
+            connection.commit()
+            return {"status": "updated", "deleted": False, "word": format_saved_word(updated_row).model_dump()}
+        finally:
+            connection.close()
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -439,41 +793,89 @@ async def create_saved_word(word: SavedWordCreate):
         connection = get_db_connection()
         try:
             with connection.cursor() as cursor:
-                # 1. 查找或创建 note_id (如果没传)
-                note_id = word.note_id
-                if not note_id:
-                    today = date.today().isoformat()
-                    cursor.execute("SELECT id FROM daily_notes WHERE day = %s", (today,))
-                    row = cursor.fetchone()
-                    if row:
-                        note_id = row['id']
-                    else:
-                        title = f"{today} 的单词卡片"
-                        cursor.execute("INSERT INTO daily_notes (day, title, word_count) VALUES (%s, %s, %s)", (today, title, 0))
-                        note_id = cursor.lastrowid
+                note_id = word.note_id if word.note_id is not None else ensure_today_note(cursor)
+                context = (word.context or "").strip()
+                lookup_data = build_lookup_payload(word.word, word.data or {})
 
-                # 2. 插入单词
-                sql = "INSERT INTO saved_words (word, context, url, data, note_id) VALUES (%s, %s, %s, %s, %s)"
-                cursor.execute(sql, (
-                    word.word, 
-                    word.context, 
-                    word.url, 
-                    json.dumps(word.data, ensure_ascii=False) if word.data else "{}", 
-                    note_id
-                ))
-                word_id = cursor.lastrowid
-                
-                # 3. 更新 word_count
-                cursor.execute("UPDATE daily_notes SET word_count = word_count + 1 WHERE id = %s", (note_id,))
-                
-                # 4. 获取完整详情
+                cursor.execute(
+                    "SELECT * FROM saved_words WHERE LOWER(word) = LOWER(%s) ORDER BY reps DESC, created_at DESC, id ASC LIMIT 1",
+                    (word.word,)
+                )
+                existing = cursor.fetchone()
+
+                if existing:
+                    payload = ensure_v2_payload(existing['word'], existing.get('data'), existing)
+                    note_linked_before = note_id in extract_note_ids_from_payload(payload, existing.get('note_id'))
+                    payload, appended, _ = append_or_get_encounter(
+                        existing['word'],
+                        payload,
+                        context,
+                        word.url,
+                        note_id,
+                        None,
+                        None,
+                        lookup_data
+                    )
+                    payload, latest = sync_payload_from_latest_encounter(existing['word'], payload)
+                    update_params = [
+                        latest.get('context', existing.get('context')),
+                        latest.get('url', existing.get('url')),
+                        json.dumps(payload, ensure_ascii=False),
+                        latest.get('note_id', existing.get('note_id')),
+                        latest.get('reading_id', existing.get('reading_id')),
+                        latest.get('video_id', existing.get('video_id')),
+                    ]
+                    update_sql = """
+                        UPDATE saved_words
+                        SET context = %s, url = %s, data = %s, note_id = %s, reading_id = %s, video_id = %s
+                    """
+                    # 手动添加同词不同上下文时也刷新收录时间，保持排序与“最近收录”一致
+                    if appended:
+                        update_sql += ", created_at = %s"
+                        update_params.append(datetime.now())
+                    update_sql += " WHERE id = %s"
+                    update_params.append(existing['id'])
+                    cursor.execute(update_sql, tuple(update_params))
+                    if appended and not note_linked_before:
+                        cursor.execute("UPDATE daily_notes SET word_count = word_count + 1 WHERE id = %s", (note_id,))
+                    word_id = existing['id']
+                else:
+                    initial_row = {
+                        "context": context,
+                        "url": word.url,
+                        "note_id": note_id,
+                        "reading_id": None,
+                        "video_id": None,
+                        "created_at": datetime.now()
+                    }
+                    payload = ensure_v2_payload(word.word, lookup_data, initial_row)
+                    payload, latest = sync_payload_from_latest_encounter(word.word, payload)
+                    cursor.execute(
+                        """
+                        INSERT INTO saved_words (word, context, url, data, note_id, reading_id, video_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            word.word,
+                            latest.get('context', context),
+                            latest.get('url', word.url),
+                            json.dumps(payload, ensure_ascii=False),
+                            latest.get('note_id', note_id),
+                            None,
+                            None
+                        )
+                    )
+                    word_id = cursor.lastrowid
+                    cursor.execute("UPDATE daily_notes SET word_count = word_count + 1 WHERE id = %s", (note_id,))
+
                 cursor.execute("SELECT * FROM saved_words WHERE id = %s", (word_id,))
                 row = cursor.fetchone()
-                
             connection.commit()
             return format_saved_word(row)
         finally:
             connection.close()
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Create Word Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -488,29 +890,68 @@ async def update_saved_word(word_id: int, word: SavedWordUpdate):
                 data = word.model_dump(exclude_unset=True)
                 if not data:
                     raise HTTPException(status_code=400, detail="No fields to update")
-                
-                fields = []
-                values = []
-                for k, v in data.items():
-                    if k == 'data' and v is not None:
-                        fields.append(f"{k} = %s")
-                        values.append(json.dumps(v, ensure_ascii=False))
-                    else:
-                        fields.append(f"{k} = %s")
-                        values.append(v)
-                
-                sql = f"UPDATE saved_words SET {', '.join(fields)} WHERE id = %s"
-                values.append(word_id)
-                cursor.execute(sql, values)
-                
+
+                cursor.execute("SELECT * FROM saved_words WHERE id = %s", (word_id,))
+                existing = cursor.fetchone()
+                if not existing:
+                    raise HTTPException(status_code=404, detail="Word not found")
+
+                new_word = data.get('word') if isinstance(data.get('word'), str) else existing['word']
+                payload = ensure_v2_payload(existing['word'], existing.get('data'), existing)
+                for enc in payload.get('encounters') or []:
+                    if not isinstance(enc, dict):
+                        continue
+                    lookup = build_lookup_payload(new_word, enc.get('lookup'))
+                    source_key = build_source_key(enc.get('url'), enc.get('reading_id'), enc.get('video_id'), enc.get('note_id'))
+                    enc['lookup'] = lookup
+                    enc['key'] = build_encounter_key(new_word, source_key, enc.get('context') or '')
+                payload, latest = sync_payload_from_latest_encounter(new_word, payload)
+
+                if 'context' in data:
+                    latest['context'] = data['context'] or ""
+                if 'url' in data:
+                    latest['url'] = data['url']
+                if 'note_id' in data:
+                    latest['note_id'] = data['note_id']
+
+                if 'data' in data and isinstance(data['data'], dict):
+                    latest_lookup = build_lookup_payload(new_word, latest.get('lookup'))
+                    latest_lookup.update(build_lookup_payload(new_word, data['data']))
+                    latest['lookup'] = latest_lookup
+
+                payload['encounters'] = [
+                    latest if isinstance(enc, dict) and enc.get('key') == latest.get('key') else enc
+                    for enc in (payload.get('encounters') or [])
+                ]
+
+                payload, latest = sync_payload_from_latest_encounter(new_word, payload)
+
+                cursor.execute(
+                    """
+                    UPDATE saved_words
+                    SET word = %s, context = %s, url = %s, data = %s, note_id = %s, reading_id = %s, video_id = %s
+                    WHERE id = %s
+                    """,
+                    (
+                        new_word,
+                        latest.get('context', existing.get('context')),
+                        latest.get('url', existing.get('url')),
+                        json.dumps(payload, ensure_ascii=False),
+                        latest.get('note_id', existing.get('note_id')),
+                        latest.get('reading_id', existing.get('reading_id')),
+                        latest.get('video_id', existing.get('video_id')),
+                        word_id
+                    )
+                )
+
                 cursor.execute("SELECT * FROM saved_words WHERE id = %s", (word_id,))
                 row = cursor.fetchone()
-                if not row:
-                    raise HTTPException(status_code=404, detail="Word not found")
             connection.commit()
             return format_saved_word(row)
         finally:
             connection.close()
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Update Word Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -524,24 +965,33 @@ async def batch_delete_words(request: BatchDeleteRequest):
             with connection.cursor() as cursor:
                 if not request.word_ids:
                     return {"status": "success", "count": 0}
-                
-                # 为了正确更新 daily_notes 的 word_count，我们需要按 note_id 分组统计删除数量
+
                 placeholders = ', '.join(['%s'] * len(request.word_ids))
-                cursor.execute(f"SELECT note_id, COUNT(*) as cnt FROM saved_words WHERE id IN ({placeholders}) GROUP BY note_id", tuple(request.word_ids))
-                counts = cursor.fetchall()
-                
-                # 执行删除
+                cursor.execute(f"SELECT * FROM saved_words WHERE id IN ({placeholders})", tuple(request.word_ids))
+                rows = cursor.fetchall()
+                if not rows:
+                    return {"status": "success", "count": 0}
+
+                note_decrements: dict[int, int] = {}
+                for row in rows:
+                    payload = ensure_v2_payload(row['word'], row.get('data'), row)
+                    note_ids = extract_note_ids_from_payload(payload, row.get('note_id'))
+                    for nid in note_ids:
+                        note_decrements[nid] = note_decrements.get(nid, 0) + 1
+
                 cursor.execute(f"DELETE FROM saved_words WHERE id IN ({placeholders})", tuple(request.word_ids))
-                
-                # 更新 counts
-                for item in counts:
-                    if item['note_id']:
-                        cursor.execute("UPDATE daily_notes SET word_count = GREATEST(0, word_count - %s) WHERE id = %s", (item['cnt'], item['note_id']))
-                
+                for nid, cnt in note_decrements.items():
+                    cursor.execute(
+                        "UPDATE daily_notes SET word_count = GREATEST(0, word_count - %s) WHERE id = %s",
+                        (cnt, nid)
+                    )
+
             connection.commit()
-            return {"status": "success", "count": len(request.word_ids)}
+            return {"status": "success", "count": len(rows)}
         finally:
             connection.close()
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Batch Delete Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1049,6 +1499,3 @@ async def import_review_article(request: ReviewImportRequest):
     except Exception as e:
         print(f"Import Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-
