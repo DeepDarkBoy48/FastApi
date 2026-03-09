@@ -118,9 +118,24 @@ def sort_encounters_desc(encounters: List[dict]) -> List[dict]:
     return sorted(encounters, key=lambda e: e.get('created_at') or '', reverse=True)
 
 
+def strip_legacy_payload_fields(payload: dict) -> dict:
+    cleaned = dict(payload)
+    for field in (
+        'context', 'url', 'note_id', 'reading_id', 'video_id',
+        'word', 'contextMeaning', 'partOfSpeech', 'grammarRole', 'explanation', 'otherMeanings',
+        'm', 'p'
+    ):
+        cleaned.pop(field, None)
+    return cleaned
+
+
 def ensure_v2_payload(word: str, raw_payload: dict, row: Optional[dict] = None) -> dict:
     row = row or {}
-    payload = parse_json_obj(raw_payload)
+    parsed_payload = parse_json_obj(raw_payload)
+    legacy_context = parsed_payload.get('context') or row.get('context') or ""
+    legacy_url = parsed_payload.get('url') if parsed_payload.get('url') is not None else row.get('url')
+    root_lookup = build_lookup_payload(word, parsed_payload)
+    payload = strip_legacy_payload_fields(parsed_payload)
 
     normalized_encounters: List[dict] = []
     raw_encounters = payload.get('encounters')
@@ -128,15 +143,15 @@ def ensure_v2_payload(word: str, raw_payload: dict, row: Optional[dict] = None) 
         for enc in raw_encounters:
             if not isinstance(enc, dict):
                 continue
-            enc_context = enc.get('context') or row.get('context') or ""
-            enc_url = enc.get('url') or row.get('url')
+            enc_context = enc.get('context') or legacy_context
+            enc_url = enc.get('url') if enc.get('url') is not None else legacy_url
             enc_note_id = enc.get('note_id') if enc.get('note_id') is not None else row.get('note_id')
             enc_reading_id = enc.get('reading_id') if enc.get('reading_id') is not None else row.get('reading_id')
             enc_video_id = enc.get('video_id') if enc.get('video_id') is not None else row.get('video_id')
             source_key = build_source_key(enc_url, enc_reading_id, enc_video_id, enc_note_id)
             enc_key = enc.get('key') or build_encounter_key(word, source_key, enc_context)
 
-            lookup_src = enc.get('lookup') if isinstance(enc.get('lookup'), dict) else payload
+            lookup_src = enc.get('lookup') if isinstance(enc.get('lookup'), dict) else root_lookup
             lookup = build_lookup_payload(word, lookup_src)
             normalized_encounters.append({
                 "key": enc_key,
@@ -150,8 +165,8 @@ def ensure_v2_payload(word: str, raw_payload: dict, row: Optional[dict] = None) 
             })
 
     if not normalized_encounters:
-        fallback_context = row.get('context') or payload.get('context') or ""
-        fallback_url = row.get('url') or payload.get('url')
+        fallback_context = legacy_context
+        fallback_url = legacy_url
         fallback_note_id = row.get('note_id')
         fallback_reading_id = row.get('reading_id')
         fallback_video_id = row.get('video_id')
@@ -164,7 +179,7 @@ def ensure_v2_payload(word: str, raw_payload: dict, row: Optional[dict] = None) 
             "reading_id": fallback_reading_id,
             "video_id": fallback_video_id,
             "created_at": datetime_to_str(row.get('created_at')),
-            "lookup": build_lookup_payload(word, payload)
+            "lookup": root_lookup
         })
 
     payload = dict(payload)
@@ -190,11 +205,9 @@ def sync_payload_from_latest_encounter(word: str, payload: dict) -> tuple[dict, 
         }
         encounters = [fallback]
     latest = encounters[0]
-    latest_lookup = build_lookup_payload(word, latest.get('lookup'))
-    payload = dict(payload)
+    payload = strip_legacy_payload_fields(payload)
     payload['schemaVersion'] = 2
     payload['encounters'] = encounters
-    payload.update(latest_lookup)
     return payload, latest
 
 
@@ -312,13 +325,11 @@ def save_word_to_db(word: str, context: str, data: dict, url: str = None, readin
                     payload, latest = sync_payload_from_latest_encounter(word, payload)
 
                     sql = """
-                        INSERT INTO saved_words (word, context, url, data, note_id, reading_id, video_id)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        INSERT INTO saved_words (word, data, note_id, reading_id, video_id)
+                        VALUES (%s, %s, %s, %s, %s)
                     """
                     cursor.execute(sql, (
                         word,
-                        latest.get('context', context),
-                        latest.get('url', url),
                         json.dumps(payload, ensure_ascii=False),
                         latest.get('note_id', note_id),
                         latest.get('reading_id', reading_id),
@@ -341,8 +352,6 @@ def save_word_to_db(word: str, context: str, data: dict, url: str = None, readin
                     updated_payload, latest = sync_payload_from_latest_encounter(existing['word'], updated_payload)
 
                     update_params = [
-                        latest.get('context', existing.get('context')),
-                        latest.get('url', existing.get('url')),
                         json.dumps(updated_payload, ensure_ascii=False),
                         latest.get('note_id', existing.get('note_id')),
                         latest.get('reading_id', existing.get('reading_id')),
@@ -350,7 +359,7 @@ def save_word_to_db(word: str, context: str, data: dict, url: str = None, readin
                     ]
                     update_sql = """
                         UPDATE saved_words
-                        SET context = %s, url = %s, data = %s, note_id = %s, reading_id = %s, video_id = %s
+                        SET data = %s, note_id = %s, reading_id = %s, video_id = %s
                     """
                     # 仅在新增 encounter 时刷新收录时间，避免同来源同句去重时时间抖动
                     if appended:
@@ -380,15 +389,15 @@ def get_fsrs_rating(rating: int) -> Rating:
     return Rating.Easy
 
 def format_saved_word(row):
-    """Format DB row to SavedWord schema with v2 encounters + legacy mirrors."""
+    """Format DB row to SavedWord schema with v2 encounters + latest derived mirrors."""
     parsed_data = ensure_v2_payload(row['word'], row.get('data'), row)
     parsed_data, latest = sync_payload_from_latest_encounter(row['word'], parsed_data)
 
     return SavedWord(
         id=row['id'],
         word=row['word'],
-        context=latest.get('context') or row.get('context') or "",
-        url=latest.get('url') or row.get('url'),
+        context=latest.get('context') or "",
+        url=latest.get('url'),
         data=parsed_data,
         encounters=parsed_data.get('encounters') or [],
         created_at=row['created_at'].strftime('%Y-%m-%d %H:%M:%S') if row['created_at'] else None,
@@ -643,8 +652,8 @@ async def summarize_daily_note(note_id: int, user_api_key: Optional[str] = Depen
                     latest_encounter = note_encounters[0]
                     words.append({
                         "word": row['word'],
-                        "context": latest_encounter.get('context') or row.get('context') or "",
-                        "url": latest_encounter.get('url') or row.get('url'),
+                        "context": latest_encounter.get('context') or "",
+                        "url": latest_encounter.get('url'),
                         "data": latest_encounter.get('lookup') or build_lookup_payload(row['word'], payload)
                     })
 
@@ -733,12 +742,10 @@ async def delete_saved_word_encounter(word_id: int, encounter_key: str):
                 cursor.execute(
                     """
                     UPDATE saved_words
-                    SET context = %s, url = %s, data = %s, note_id = %s, reading_id = %s, video_id = %s
+                    SET data = %s, note_id = %s, reading_id = %s, video_id = %s
                     WHERE id = %s
                     """,
                     (
-                        latest.get('context', row.get('context')),
-                        latest.get('url', row.get('url')),
                         json.dumps(payload, ensure_ascii=False),
                         latest.get('note_id', row.get('note_id')),
                         latest.get('reading_id', row.get('reading_id')),
@@ -818,8 +825,6 @@ async def create_saved_word(word: SavedWordCreate):
                     )
                     payload, latest = sync_payload_from_latest_encounter(existing['word'], payload)
                     update_params = [
-                        latest.get('context', existing.get('context')),
-                        latest.get('url', existing.get('url')),
                         json.dumps(payload, ensure_ascii=False),
                         latest.get('note_id', existing.get('note_id')),
                         latest.get('reading_id', existing.get('reading_id')),
@@ -827,7 +832,7 @@ async def create_saved_word(word: SavedWordCreate):
                     ]
                     update_sql = """
                         UPDATE saved_words
-                        SET context = %s, url = %s, data = %s, note_id = %s, reading_id = %s, video_id = %s
+                        SET data = %s, note_id = %s, reading_id = %s, video_id = %s
                     """
                     # 手动添加同词不同上下文时也刷新收录时间，保持排序与“最近收录”一致
                     if appended:
@@ -852,13 +857,11 @@ async def create_saved_word(word: SavedWordCreate):
                     payload, latest = sync_payload_from_latest_encounter(word.word, payload)
                     cursor.execute(
                         """
-                        INSERT INTO saved_words (word, context, url, data, note_id, reading_id, video_id)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        INSERT INTO saved_words (word, data, note_id, reading_id, video_id)
+                        VALUES (%s, %s, %s, %s, %s)
                         """,
                         (
                             word.word,
-                            latest.get('context', context),
-                            latest.get('url', word.url),
                             json.dumps(payload, ensure_ascii=False),
                             latest.get('note_id', note_id),
                             None,
@@ -929,13 +932,11 @@ async def update_saved_word(word_id: int, word: SavedWordUpdate):
                 cursor.execute(
                     """
                     UPDATE saved_words
-                    SET word = %s, context = %s, url = %s, data = %s, note_id = %s, reading_id = %s, video_id = %s
+                    SET word = %s, data = %s, note_id = %s, reading_id = %s, video_id = %s
                     WHERE id = %s
                     """,
                     (
                         new_word,
-                        latest.get('context', existing.get('context')),
-                        latest.get('url', existing.get('url')),
                         json.dumps(payload, ensure_ascii=False),
                         latest.get('note_id', existing.get('note_id')),
                         latest.get('reading_id', existing.get('reading_id')),
@@ -1412,23 +1413,26 @@ async def get_review_prompt():
                 
                 # 构建单词元数据（移除 ID）
                 words_info = ""
-                for r in word_rows:
-                    data = json.loads(r['data']) if isinstance(r['data'], str) else r['data']
-                    meaning = data.get('contextMeaning') or data.get('m') or '未知'
-                    pos = data.get('partOfSpeech') or ''
-                    role = data.get('grammarRole') or ''
-                    exp = data.get('explanation') or ''
-                    others = data.get('otherMeanings') or []
+                for formatted in words:
+                    formatted_data = formatted.model_dump()
+                    encounters = formatted_data['data'].get('encounters') or []
+                    latest_encounter = encounters[0] if encounters else {}
+                    lookup = latest_encounter.get('lookup') or formatted_data['data']
+                    meaning = lookup.get('contextMeaning') or lookup.get('m') or '未知'
+                    pos = lookup.get('partOfSpeech') or ''
+                    role = lookup.get('grammarRole') or ''
+                    exp = lookup.get('explanation') or ''
+                    others = lookup.get('otherMeanings') or []
                     
                     word_meta = {
-                        "word": r['word'],
+                        "word": formatted.word,
                         "contextMeaning": meaning,
                         "partOfSpeech": pos,
                         "grammarRole": role,
                         "explanation": exp,
                         "otherMeanings": others,
-                        "context": r['context'],
-                        "url": r['url']
+                        "context": latest_encounter.get('context') or '',
+                        "url": latest_encounter.get('url')
                     }
                     words_info += f"- {json.dumps(word_meta, ensure_ascii=False)}\n"
 

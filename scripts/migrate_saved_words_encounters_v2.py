@@ -89,8 +89,21 @@ def build_lookup_payload(word: str, data: dict) -> dict:
     }
 
 
+def strip_compat_fields(payload: dict) -> dict:
+    cleaned = dict(payload)
+    for field in (
+        "context", "url", "note_id", "reading_id", "video_id",
+        "word", "contextMeaning", "partOfSpeech", "grammarRole", "explanation", "otherMeanings",
+        "m", "p"
+    ):
+        cleaned.pop(field, None)
+    return cleaned
+
+
 def ensure_v2_payload(word: str, raw_payload: dict, row: dict) -> dict:
-    payload = parse_json_obj(raw_payload)
+    parsed_payload = parse_json_obj(raw_payload)
+    payload = strip_compat_fields(parsed_payload)
+    root_lookup = build_lookup_payload(word, parsed_payload)
     encounters = []
 
     raw_encounters = payload.get("encounters")
@@ -105,7 +118,7 @@ def ensure_v2_payload(word: str, raw_payload: dict, row: dict) -> dict:
             video_id = enc.get("video_id") if enc.get("video_id") is not None else row.get("video_id")
             source_key = build_source_key(url, reading_id, video_id, note_id)
             key = enc.get("key") or build_encounter_key(word, source_key, context)
-            lookup_src = enc.get("lookup") if isinstance(enc.get("lookup"), dict) else payload
+            lookup_src = enc.get("lookup") if isinstance(enc.get("lookup"), dict) else root_lookup
             encounters.append({
                 "key": key,
                 "context": context,
@@ -118,8 +131,8 @@ def ensure_v2_payload(word: str, raw_payload: dict, row: dict) -> dict:
             })
 
     if not encounters:
-        context = row.get("context") or payload.get("context") or ""
-        url = row.get("url") or payload.get("url")
+        context = row.get("context") or parsed_payload.get("context") or ""
+        url = row.get("url") or parsed_payload.get("url")
         note_id = row.get("note_id")
         reading_id = row.get("reading_id")
         video_id = row.get("video_id")
@@ -132,16 +145,14 @@ def ensure_v2_payload(word: str, raw_payload: dict, row: dict) -> dict:
             "reading_id": reading_id,
             "video_id": video_id,
             "created_at": datetime_to_str(row.get("created_at")),
-            "lookup": build_lookup_payload(word, payload),
+            "lookup": root_lookup,
         }]
 
     encounters = sorted(encounters, key=lambda e: e.get("created_at") or "", reverse=True)
-    latest = encounters[0]
 
-    merged = dict(payload)
+    merged = strip_compat_fields(payload)
     merged["schemaVersion"] = 2
     merged["encounters"] = encounters
-    merged.update(build_lookup_payload(word, latest.get("lookup")))
     return merged
 
 

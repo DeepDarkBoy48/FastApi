@@ -572,11 +572,22 @@ async def generate_daily_summary_service(words: List[dict], user_api_key: Option
     """用 AI 结合 Google 搜索对当天的单词及来源链接进行串联总结 (结构化输出)"""
     model = DEFAULT_MODEL
     client = get_client(user_api_key)
+
+    def extract_lookup(data) -> dict:
+        payload = json.loads(data) if isinstance(data, str) else data
+        if not isinstance(payload, dict):
+            return {}
+        encounters = payload.get('encounters')
+        if isinstance(encounters, list) and encounters:
+            latest = encounters[0]
+            if isinstance(latest, dict) and isinstance(latest.get('lookup'), dict):
+                return latest['lookup']
+        return payload
     
     # 构建单词和 URL 信息字符串
     words_info = ""
     for w in words:
-        data = w['data']
+        data = extract_lookup(w['data'])
         meaning = data.get('contextMeaning') or data.get('m') or '未知'
         pos = data.get('partOfSpeech') or ''
         role = data.get('grammarRole') or ''
@@ -657,6 +668,17 @@ async def generate_review_article_service(words: List[dict], user_api_key: Optio
     """为 FSRS 复习模式生成每日趣味文章 (播客、辩论、采访、博客等)"""
     model = DEFAULT_MODEL
     client = get_client(user_api_key)
+
+    def extract_lookup(data) -> dict:
+        payload = json.loads(data) if isinstance(data, str) else data
+        if not isinstance(payload, dict):
+            return {}
+        encounters = payload.get('encounters')
+        if isinstance(encounters, list) and encounters:
+            latest = encounters[0]
+            if isinstance(latest, dict) and isinstance(latest.get('lookup'), dict):
+                return latest['lookup']
+        return payload
     
     # 随机选择文章类型
     import random
@@ -672,7 +694,7 @@ async def generate_review_article_service(words: List[dict], user_api_key: Optio
     # 构建单词元数据
     words_info = ""
     for w in words:
-        data = json.loads(w['data']) if isinstance(w['data'], str) else w['data']
+        data = extract_lookup(w['data'])
         meaning = data.get('contextMeaning') or data.get('m') or '未知'
         pos = data.get('partOfSpeech') or ''
         role = data.get('grammarRole') or ''
@@ -739,4 +761,3 @@ async def generate_review_article_service(words: List[dict], user_api_key: Optio
             article_type="none",
             words_json=[]
         )
-
