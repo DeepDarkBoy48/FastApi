@@ -20,12 +20,14 @@ from schemas import (
     RapidLookupRequest, RapidLookupResult,
     TranslateRequest, AdvancedTranslateRequest, TranslateResult,
     SavedWord, SavedWordsResponse,
+    SavedWordsExportResponse, SavedWordsImportRequest, SavedWordsImportResponse,
     DailyNote, DailyNotesResponse, NoteDetailResponse,
     VideoNotebook, VideoNotebookCreate, VideoNotebookListResponse, VideoNotebookUpdate,
     ReadingNotebook, ReadingNotebookCreate, ReadingNotebookListResponse, ReadingNotebookUpdate,
     TodayReviewResponse, ReviewArticle, FSRSFeedbackRequest,
     ReviewPromptResponse, ReviewImportRequest,
-    SavedWordUpdate, SavedWordCreate, BatchDeleteRequest
+    SavedWordUpdate, SavedWordCreate, BatchDeleteRequest,
+    FeatureLLMConfigResponse
 )
 
 
@@ -70,6 +72,28 @@ def datetime_to_str(value) -> str:
     return str(value)
 
 
+def parse_datetime_value(value):
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        normalized = raw.replace('T', ' ')
+        if normalized.endswith('Z'):
+            normalized = normalized[:-1]
+        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d'):
+            try:
+                return datetime.strptime(normalized, fmt)
+            except ValueError:
+                continue
+        try:
+            return datetime.fromisoformat(raw.replace('Z', '+00:00')).replace(tzinfo=None)
+        except Exception:
+            return None
+    return None
+
+
 def parse_json_obj(value) -> dict:
     if isinstance(value, dict):
         return value
@@ -112,6 +136,39 @@ def build_lookup_payload(word: str, data: Optional[dict]) -> dict:
         "explanation": safe_data.get('explanation') or "",
         "otherMeanings": other_meanings
     }
+
+
+def sanitize_import_payload(word: str, payload: dict, fallback_note_id: int) -> dict:
+    sanitized = ensure_v2_payload(word, payload, {
+        "context": "",
+        "url": None,
+        "note_id": fallback_note_id,
+        "reading_id": None,
+        "video_id": None,
+        "created_at": datetime.now()
+    })
+    encounters = sanitized.get('encounters') if isinstance(sanitized.get('encounters'), list) else []
+    normalized_encounters = []
+    for enc in encounters:
+        if not isinstance(enc, dict):
+            continue
+        encounter_url = enc.get('url')
+        source_key = build_source_key(encounter_url, None, None, fallback_note_id)
+        encounter_context = enc.get('context') or ""
+        normalized_encounters.append({
+            "key": build_encounter_key(word, source_key, encounter_context),
+            "context": encounter_context,
+            "url": encounter_url,
+            "note_id": fallback_note_id,
+            "reading_id": None,
+            "video_id": None,
+            "created_at": datetime_to_str(parse_datetime_value(enc.get('created_at'))),
+            "lookup": build_lookup_payload(word, enc.get('lookup'))
+        })
+
+    sanitized['schemaVersion'] = 2
+    sanitized['encounters'] = sort_encounters_desc(normalized_encounters)
+    return sanitized
 
 
 def sort_encounters_desc(encounters: List[dict]) -> List[dict]:
@@ -419,46 +476,81 @@ def format_saved_word(row):
 async def get_user_api_key(x_gemini_api_key: Annotated[Optional[str], Header()] = None):
     return x_gemini_api_key
 
+
+async def get_llm_config_overrides(x_gemini_feature_config: Annotated[Optional[str], Header()] = None):
+    if not x_gemini_feature_config:
+        return {}
+    try:
+        payload = json.loads(x_gemini_feature_config)
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
 # --- SmashEnglish Endpoints ---
 
+@app.get("/fastapi/llm-configs", response_model=FeatureLLMConfigResponse)
+async def get_llm_configs():
+    return FeatureLLMConfigResponse(features=gemini.get_feature_configs())
+
+
 @app.post("/fastapi/analyze", response_model=AnalysisResult)
-async def analyze_sentence(request: AnalysisRequest, user_api_key: Optional[str] = Depends(get_user_api_key)):
+async def analyze_sentence(
+    request: AnalysisRequest,
+    user_api_key: Optional[str] = Depends(get_user_api_key),
+    llm_config_overrides: dict = Depends(get_llm_config_overrides)
+):
     try:
-        result = await gemini.analyze_sentence_service(request.sentence, user_api_key)
+        result = await gemini.analyze_sentence_service(request.sentence, user_api_key, llm_config_overrides)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/fastapi/lookup", response_model=DictionaryResult)
-async def lookup_word(request: LookupRequest, user_api_key: Optional[str] = Depends(get_user_api_key)):
+async def lookup_word(
+    request: LookupRequest,
+    user_api_key: Optional[str] = Depends(get_user_api_key),
+    llm_config_overrides: dict = Depends(get_llm_config_overrides)
+):
     try:
-        result = await gemini.lookup_word_service(request.word, user_api_key)
+        result = await gemini.lookup_word_service(request.word, user_api_key, llm_config_overrides)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/fastapi/writing", response_model=WritingResult)
-async def evaluate_writing(request: WritingRequest, user_api_key: Optional[str] = Depends(get_user_api_key)):
+async def evaluate_writing(
+    request: WritingRequest,
+    user_api_key: Optional[str] = Depends(get_user_api_key),
+    llm_config_overrides: dict = Depends(get_llm_config_overrides)
+):
     try:
-        result = await gemini.evaluate_writing_service(request.text, request.mode, user_api_key)
+        result = await gemini.evaluate_writing_service(request.text, request.mode, user_api_key, llm_config_overrides)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/fastapi/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest, user_api_key: Optional[str] = Depends(get_user_api_key)):
+async def chat(
+    request: ChatRequest,
+    user_api_key: Optional[str] = Depends(get_user_api_key),
+    llm_config_overrides: dict = Depends(get_llm_config_overrides)
+):
     try:
-        response_text = await gemini.chat_service(request, user_api_key)
+        response_text = await gemini.chat_service(request, user_api_key, llm_config_overrides)
         return ChatResponse(response=response_text)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/fastapi/quick-lookup", response_model=QuickLookupResult)
-async def quick_lookup(request: QuickLookupRequest, user_api_key: Optional[str] = Depends(get_user_api_key)):
+async def quick_lookup(
+    request: QuickLookupRequest,
+    user_api_key: Optional[str] = Depends(get_user_api_key),
+    llm_config_overrides: dict = Depends(get_llm_config_overrides)
+):
     """快速上下文查词 - 返回词条并自动保存到数据库"""
     try:
-        result = await gemini.quick_lookup_service(request.word, request.context, user_api_key)
+        result = await gemini.quick_lookup_service(request.word, request.context, user_api_key, llm_config_overrides)
         # 异步/后台保存
         save_word_to_db(
             request.word, 
@@ -473,28 +565,40 @@ async def quick_lookup(request: QuickLookupRequest, user_api_key: Optional[str] 
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/fastapi/rapid-lookup", response_model=RapidLookupResult)
-async def rapid_lookup(request: RapidLookupRequest, user_api_key: Optional[str] = Depends(get_user_api_key)):
+async def rapid_lookup(
+    request: RapidLookupRequest,
+    user_api_key: Optional[str] = Depends(get_user_api_key),
+    llm_config_overrides: dict = Depends(get_llm_config_overrides)
+):
     """极简上下文查词 - 极致速度 (不保存数据库)"""
     try:
-        result = await gemini.rapid_lookup_service(request.word, request.context, user_api_key)
+        result = await gemini.rapid_lookup_service(request.word, request.context, user_api_key, llm_config_overrides)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/fastapi/translate", response_model=TranslateResult)
-async def translate_endpoint(request: TranslateRequest, user_api_key: Optional[str] = Depends(get_user_api_key)):
+async def translate_endpoint(
+    request: TranslateRequest,
+    user_api_key: Optional[str] = Depends(get_user_api_key),
+    llm_config_overrides: dict = Depends(get_llm_config_overrides)
+):
     """极速翻译接口"""
     try:
-        result = await gemini.translate_service(request.text, user_api_key)
+        result = await gemini.translate_service(request.text, user_api_key, llm_config_overrides)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/fastapi/translate-advanced", response_model=TranslateResult)
-async def translate_advanced_endpoint(request: AdvancedTranslateRequest, user_api_key: Optional[str] = Depends(get_user_api_key)):
+async def translate_advanced_endpoint(
+    request: AdvancedTranslateRequest,
+    user_api_key: Optional[str] = Depends(get_user_api_key),
+    llm_config_overrides: dict = Depends(get_llm_config_overrides)
+):
     """高级翻译接口 - 支持多语言与自定义指令"""
     try:
-        result = await gemini.translate_advanced_service(request, user_api_key)
+        result = await gemini.translate_advanced_service(request, user_api_key, llm_config_overrides)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -633,7 +737,11 @@ async def submit_review_feedback(request: FSRSFeedbackRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/fastapi/daily-notes/{note_id}/summarize")
-async def summarize_daily_note(note_id: int, user_api_key: Optional[str] = Depends(get_user_api_key)):
+async def summarize_daily_note(
+    note_id: int,
+    user_api_key: Optional[str] = Depends(get_user_api_key),
+    llm_config_overrides: dict = Depends(get_llm_config_overrides)
+):
     """为当天的笔记生成 AI 总结博客 (更新标题、简介和内容)"""
     try:
         connection = get_db_connection()
@@ -661,7 +769,7 @@ async def summarize_daily_note(note_id: int, user_api_key: Optional[str] = Depen
                     raise HTTPException(status_code=400, detail="No words to summarize")
                 
                 # 2. 调用 Gemini 生成结构化内容
-                blog_result = await gemini.generate_daily_summary_service(words, user_api_key)
+                blog_result = await gemini.generate_daily_summary_service(words, user_api_key, llm_config_overrides)
                 
                 # 3. 更新到数据库 (title, summary -> prologue, content)
                 cursor.execute(
@@ -791,6 +899,174 @@ async def get_all_saved_words():
             connection.close()
     except Exception as e:
         print(f"Database Get All Words Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/fastapi/saved-words/export", response_model=SavedWordsExportResponse)
+async def export_saved_words():
+    try:
+        connection = get_db_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM saved_words ORDER BY created_at DESC")
+                rows = cursor.fetchall()
+                words = [format_saved_word(row) for row in rows]
+                return SavedWordsExportResponse(
+                    exported_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    words=words
+                )
+        finally:
+            connection.close()
+    except Exception as e:
+        print(f"Export Saved Words Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/fastapi/saved-words/import", response_model=SavedWordsImportResponse)
+async def import_saved_words(request: SavedWordsImportRequest):
+    try:
+        connection = get_db_connection()
+        try:
+            with connection.cursor() as cursor:
+                today_note_id = ensure_today_note(cursor)
+                total = len(request.words)
+                imported = 0
+                merged = 0
+                skipped = 0
+
+                for item in request.words:
+                    clean_word = (item.word or "").strip()
+                    if not clean_word:
+                        skipped += 1
+                        continue
+
+                    seed_payload = parse_json_obj(item.data)
+                    if item.encounters:
+                        seed_payload = dict(seed_payload)
+                        seed_payload['encounters'] = [enc.model_dump() for enc in item.encounters]
+
+                    if not seed_payload:
+                        seed_payload = {
+                            "contextMeaning": "",
+                            "partOfSpeech": "",
+                            "grammarRole": "",
+                            "explanation": "",
+                            "otherMeanings": []
+                        }
+
+                    if item.context and 'context' not in seed_payload:
+                        seed_payload['context'] = item.context
+                    if item.url and 'url' not in seed_payload:
+                        seed_payload['url'] = item.url
+
+                    import_payload = sanitize_import_payload(clean_word, seed_payload, today_note_id)
+                    import_payload, latest_import = sync_payload_from_latest_encounter(clean_word, import_payload)
+                    import_created_at = parse_datetime_value(
+                        latest_import.get('created_at') or item.created_at
+                    ) or datetime.now()
+                    import_last_review = parse_datetime_value(item.last_review)
+
+                    cursor.execute(
+                        "SELECT * FROM saved_words WHERE LOWER(word) = LOWER(%s) ORDER BY reps DESC, created_at DESC, id ASC LIMIT 1",
+                        (clean_word,)
+                    )
+                    existing = cursor.fetchone()
+
+                    if existing:
+                        existing_payload = ensure_v2_payload(existing['word'], existing.get('data'), existing)
+                        appended_any = False
+                        for enc in import_payload.get('encounters') or []:
+                            existing_payload, appended, _ = append_or_get_encounter(
+                                existing['word'],
+                                existing_payload,
+                                enc.get('context') or "",
+                                enc.get('url'),
+                                today_note_id,
+                                None,
+                                None,
+                                enc.get('lookup') or {}
+                            )
+                            appended_any = appended_any or appended
+
+                        existing_payload, latest = sync_payload_from_latest_encounter(existing['word'], existing_payload)
+                        use_import_progress = item.reps > (existing.get('reps') or 0)
+
+                        cursor.execute(
+                            """
+                            UPDATE saved_words
+                            SET data = %s,
+                                note_id = %s,
+                                reading_id = %s,
+                                video_id = %s,
+                                created_at = %s,
+                                stability = %s,
+                                difficulty = %s,
+                                elapsed_days = %s,
+                                scheduled_days = %s,
+                                last_review = %s,
+                                reps = %s,
+                                state = %s
+                            WHERE id = %s
+                            """,
+                            (
+                                json.dumps(existing_payload, ensure_ascii=False),
+                                latest.get('note_id', today_note_id),
+                                None,
+                                None,
+                                import_created_at if appended_any else existing.get('created_at'),
+                                item.stability if use_import_progress else existing.get('stability', 0.0),
+                                item.difficulty if use_import_progress else existing.get('difficulty', 0.0),
+                                item.elapsed_days if use_import_progress else existing.get('elapsed_days', 0),
+                                item.scheduled_days if use_import_progress else existing.get('scheduled_days', 0),
+                                import_last_review if use_import_progress else existing.get('last_review'),
+                                item.reps if use_import_progress else existing.get('reps', 0),
+                                item.state if use_import_progress else existing.get('state', 0),
+                                existing['id']
+                            )
+                        )
+                        merged += 1
+                        if appended_any:
+                            imported += 1
+                            cursor.execute("UPDATE daily_notes SET word_count = word_count + 1 WHERE id = %s", (today_note_id,))
+                    else:
+                        cursor.execute(
+                            """
+                            INSERT INTO saved_words (
+                                note_id, word, data, created_at, stability, difficulty,
+                                elapsed_days, scheduled_days, last_review, reps, state, reading_id, video_id
+                            )
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            """,
+                            (
+                                today_note_id,
+                                clean_word,
+                                json.dumps(import_payload, ensure_ascii=False),
+                                import_created_at,
+                                item.stability,
+                                item.difficulty,
+                                item.elapsed_days,
+                                item.scheduled_days,
+                                import_last_review,
+                                item.reps,
+                                item.state,
+                                None,
+                                None
+                            )
+                        )
+                        imported += 1
+                        cursor.execute("UPDATE daily_notes SET word_count = word_count + 1 WHERE id = %s", (today_note_id,))
+
+            connection.commit()
+            return SavedWordsImportResponse(
+                total=total,
+                imported=imported,
+                merged=merged,
+                skipped=skipped
+            )
+        finally:
+            connection.close()
+    except Exception as e:
+        print(f"Import Saved Words Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/fastapi/saved-words", response_model=SavedWord)

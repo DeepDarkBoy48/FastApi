@@ -152,6 +152,34 @@ class TranslateResult(BaseModel):
     translation: str = Field(description="翻译后的文本结果")
 
 
+# --- LLM Config Schemas ---
+ThinkingLevel = Literal['default', 'minimal', 'low', 'medium', 'high']
+LlmFeatureKey = Literal[
+    'analysis',
+    'dictionary',
+    'writing',
+    'chat',
+    'quick_lookup',
+    'rapid_lookup',
+    'translate',
+    'translate_advanced',
+    'daily_summary',
+    'review_article'
+]
+
+
+class FeatureLLMConfig(BaseModel):
+    feature: LlmFeatureKey
+    label: str
+    description: str
+    model: str
+    thinking_level: ThinkingLevel
+
+
+class FeatureLLMConfigResponse(BaseModel):
+    features: List[FeatureLLMConfig]
+
+
 # --- Saved Words Schemas ---
 class SavedWordEncounter(BaseModel):
     key: str
@@ -186,6 +214,45 @@ class SavedWord(BaseModel):
 
 class SavedWordsResponse(BaseModel):
     words: List[SavedWord]
+
+
+class SavedWordImportItem(BaseModel):
+    id: Optional[int] = None
+    word: str
+    context: Optional[str] = None
+    url: Optional[str] = None
+    data: Optional[dict] = None
+    encounters: List[SavedWordEncounter] = Field(default_factory=list)
+    created_at: Optional[str] = None
+    note_id: Optional[int] = None
+    reading_id: Optional[int] = None
+    video_id: Optional[int] = None
+    stability: float = 0.0
+    difficulty: float = 0.0
+    elapsed_days: int = 0
+    scheduled_days: int = 0
+    last_review: Optional[str] = None
+    reps: int = 0
+    state: int = 0
+
+
+class SavedWordsExportResponse(BaseModel):
+    version: int = 1
+    exported_at: str
+    words: List[SavedWord]
+
+
+class SavedWordsImportRequest(BaseModel):
+    version: Optional[int] = None
+    exported_at: Optional[str] = None
+    words: List[SavedWordImportItem]
+
+
+class SavedWordsImportResponse(BaseModel):
+    total: int
+    imported: int
+    merged: int
+    skipped: int
 
 class SavedWordUpdate(BaseModel):
     word: Optional[str] = None

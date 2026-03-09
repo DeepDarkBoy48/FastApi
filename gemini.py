@@ -14,7 +14,8 @@ from schemas import (
     RapidLookupResult,
     TranslateRequest, AdvancedTranslateRequest, TranslateResult,
     BlogSummaryResult,
-    ReviewArticle
+    ReviewArticle,
+    ThinkingLevel
 )
 
 try:
@@ -43,41 +44,102 @@ def get_client(user_api_key: Optional[str] = None):
 # --- Model Configuration Central ---
 
 DEFAULT_MODEL = 'gemini-3-flash-preview'
-CHEAP_MODEL = 'gemini-2.5-flash-lite'
+LITE_MODEL = 'gemini-3.1-flash-lite-preview'
+THINKING_LEVELS = {'default', 'minimal', 'low', 'medium', 'high'}
+FEATURE_CONFIGS = {
+    'analysis': {
+        'label': '句法分析',
+        'description': '入口：顶部导航「句法」页。用于句子结构拆解、语法纠错与逐词讲解。',
+        'model': DEFAULT_MODEL,
+        'thinking_level': 'low',
+    },
+    'dictionary': {
+        'label': '详细词典',
+        'description': '入口：顶部导航「词典」页。用于完整词义、搭配、例句与频率分析。',
+        'model': DEFAULT_MODEL,
+        'thinking_level': 'minimal',
+    },
+    'writing': {
+        'label': '写作批改',
+        'description': '入口：顶部导航「写作」页。用于写作润色、纠错与反馈。',
+        'model': DEFAULT_MODEL,
+        'thinking_level': 'low',
+    },
+    'chat': {
+        'label': 'AI 助教',
+        'description': '入口：各学习页面里的 AI 助教聊天面板。用于带上下文的聊天问答。',
+        'model': DEFAULT_MODEL,
+        'thinking_level': 'minimal',
+    },
+    'quick_lookup': {
+        'label': '上下文查词',
+        'description': '入口：精读页、视频跟读页中的查词卡片。结合句子给出释义、词性和用法。',
+        'model': DEFAULT_MODEL,
+        'thinking_level': 'minimal',
+    },
+    'rapid_lookup': {
+        'label': '极速查词',
+        'description': '入口：精读页、视频跟读页中的极速释义场景。极简释义，优先速度。',
+        'model': LITE_MODEL,
+        'thinking_level': 'minimal',
+    },
+    'translate': {
+        'label': '极速翻译',
+        'description': '入口：精读页、视频跟读页中的句子翻译按钮。用于单句或整段快速翻译。',
+        'model': LITE_MODEL,
+        'thinking_level': 'minimal',
+    },
+    'translate_advanced': {
+        'label': '高级翻译',
+        'description': '入口：顶部导航「翻译」页。用于多语言翻译、源语言/目标语言选择与自动识别。',
+        'model': LITE_MODEL,
+        'thinking_level': 'minimal',
+    },
+    'daily_summary': {
+        'label': '每日总结',
+        'description': '入口：日记/每日总结生成流程，当前不是顶部单独页面。根据当天学习内容生成总结卡片。',
+        'model': DEFAULT_MODEL,
+        'thinking_level': 'low',
+    },
+    'review_article': {
+        'label': '复习文章',
+        'description': '入口：复习页文章生成流程。根据复习词汇生成文章内容。',
+        'model': DEFAULT_MODEL,
+        'thinking_level': 'low',
+    },
+}
 
 
-def get_analysis_config():
-    """句子语法分析卡片模式"""
-    return DEFAULT_MODEL, 'low'
+def get_feature_configs():
+    return [
+        {
+            'feature': feature,
+            **config
+        }
+        for feature, config in FEATURE_CONFIGS.items()
+    ]
 
-def get_dictionary_config():
-    """详细词典查询模式"""
-    return DEFAULT_MODEL, 'minimal'
 
-def get_writing_config():
-    """写作润色与评分模式"""
-    return DEFAULT_MODEL, 'low'
+def resolve_feature_config(feature: str, overrides: Optional[dict] = None) -> tuple[str, ThinkingLevel]:
+    default_config = FEATURE_CONFIGS[feature]
+    override = overrides.get(feature) if isinstance(overrides, dict) else None
+    model = default_config['model']
+    thinking_level = default_config['thinking_level']
 
-def get_chat_config():
-    """AI 助教对话模式"""
-    return DEFAULT_MODEL, 'minimal'
+    if isinstance(override, dict):
+        custom_model = str(override.get('model') or '').strip()
+        custom_thinking_level = str(override.get('thinking_level') or '').strip().lower()
+        if custom_model:
+            model = custom_model
+        if custom_thinking_level in THINKING_LEVELS:
+            thinking_level = custom_thinking_level
 
-def get_lookup_config():
-    """上下文查词卡片模式 (含快速与极速)"""
-    return DEFAULT_MODEL, 'minimal'
-
-def get_translate_config():
-    """全文/句子极速翻译模式"""
-    return DEFAULT_MODEL, 'minimal'
-
-def get_crawl_config():
-    """网页抓取与排版模式 - 使用最便宜的 Lite 模型"""
-    return LITE_MODEL, 'minimal'
+    return model, thinking_level
 
 
 
-async def analyze_sentence_service(sentence: str, user_api_key: Optional[str] = None) -> AnalysisResult:
-    model, thinking_level = get_analysis_config()
+async def analyze_sentence_service(sentence: str, user_api_key: Optional[str] = None, config_overrides: Optional[dict] = None) -> AnalysisResult:
+    model, thinking_level = resolve_feature_config('analysis', config_overrides)
     client = get_client(user_api_key)
     
     prompt = f"""
@@ -161,8 +223,8 @@ async def analyze_sentence_service(sentence: str, user_api_key: Optional[str] = 
         raise Exception("无法分析该句子。请检查网络或 API Key 设置。")
 
 
-async def lookup_word_service(word: str, user_api_key: Optional[str] = None) -> DictionaryResult:
-    model, thinking_level = get_dictionary_config()
+async def lookup_word_service(word: str, user_api_key: Optional[str] = None, config_overrides: Optional[dict] = None) -> DictionaryResult:
+    model, thinking_level = resolve_feature_config('dictionary', config_overrides)
     client = get_client(user_api_key)
 
     prompt = f"""
@@ -223,8 +285,8 @@ async def lookup_word_service(word: str, user_api_key: Optional[str] = None) -> 
         raise Exception("无法查询该单词，请重试。")
 
 
-async def evaluate_writing_service(text: str, mode: WritingMode, user_api_key: Optional[str] = None) -> WritingResult:
-    model, thinking_level = get_writing_config()
+async def evaluate_writing_service(text: str, mode: WritingMode, user_api_key: Optional[str] = None, config_overrides: Optional[dict] = None) -> WritingResult:
+    model, thinking_level = resolve_feature_config('writing', config_overrides)
     client = get_client(user_api_key)
 
     mode_instructions = """
@@ -315,8 +377,8 @@ async def evaluate_writing_service(text: str, mode: WritingMode, user_api_key: O
         raise Exception("写作分析失败，请检查网络或稍后再试。")
 
 
-async def chat_service(request: ChatRequest, user_api_key: Optional[str] = None) -> str:
-    model, thinking_level = get_chat_config()
+async def chat_service(request: ChatRequest, user_api_key: Optional[str] = None, config_overrides: Optional[dict] = None) -> str:
+    model, thinking_level = resolve_feature_config('chat', config_overrides)
     client = get_client(user_api_key)
     context_instruction = ""
     if request.contextType == 'sentence':
@@ -380,9 +442,9 @@ async def chat_service(request: ChatRequest, user_api_key: Optional[str] = None)
         raise Exception("聊天服务暂时不可用。")
 
 
-async def quick_lookup_service(word: str, context: str, user_api_key: Optional[str] = None) -> QuickLookupResult:
+async def quick_lookup_service(word: str, context: str, user_api_key: Optional[str] = None, config_overrides: Optional[dict] = None) -> QuickLookupResult:
     """快速上下文查词服务 - 给出单词在上下文中的释义和解释"""
-    model, thinking_level = get_lookup_config()
+    model, thinking_level = resolve_feature_config('quick_lookup', config_overrides)
     client = get_client(user_api_key)
 
     prompt = f"""
@@ -443,9 +505,9 @@ async def quick_lookup_service(word: str, context: str, user_api_key: Optional[s
         raise Exception("快速查词失败，请重试。")
 
 
-async def rapid_lookup_service(word: str, context: str, user_api_key: Optional[str] = None) -> RapidLookupResult:
+async def rapid_lookup_service(word: str, context: str, user_api_key: Optional[str] = None, config_overrides: Optional[dict] = None) -> RapidLookupResult:
     """极速查词服务 - 极致简短的 Prompt 以提高响应速度"""
-    model, thinking_level = get_lookup_config()
+    model, thinking_level = resolve_feature_config('rapid_lookup', config_overrides)
     client = get_client(user_api_key)
     
     # 使用更快的模型或配置
@@ -473,9 +535,9 @@ async def rapid_lookup_service(word: str, context: str, user_api_key: Optional[s
         # 返回一个降级的响应
         return RapidLookupResult(m="查询失败", p="?")
 
-async def translate_service(text: str, user_api_key: Optional[str] = None) -> TranslateResult:
+async def translate_service(text: str, user_api_key: Optional[str] = None, config_overrides: Optional[dict] = None) -> TranslateResult:
     """极速翻译服务 - 将英文句子翻译为地道的中文"""
-    model, thinking_level = get_translate_config()
+    model, thinking_level = resolve_feature_config('translate', config_overrides)
     client = get_client(user_api_key)
 
     system_instruction = """
@@ -512,9 +574,9 @@ async def translate_service(text: str, user_api_key: Optional[str] = None) -> Tr
         print(f"Translate API Error: {e}")
         return TranslateResult(translation="翻译失败")
 
-async def translate_advanced_service(request: AdvancedTranslateRequest, user_api_key: Optional[str] = None) -> TranslateResult:
+async def translate_advanced_service(request: AdvancedTranslateRequest, user_api_key: Optional[str] = None, config_overrides: Optional[dict] = None) -> TranslateResult:
     """高级翻译服务 - 支持多语言切换与自定义 Prompt 指令"""
-    model, thinking_level = get_translate_config()
+    model, thinking_level = resolve_feature_config('translate_advanced', config_overrides)
     client = get_client(user_api_key)
 
     if request.source_lang == "auto" or request.target_lang == "auto":
@@ -568,9 +630,9 @@ async def translate_advanced_service(request: AdvancedTranslateRequest, user_api
     except Exception as e:
         print(f"Advanced Translate API Error: {e}")
         raise Exception("翻译失败，请重试。")
-async def generate_daily_summary_service(words: List[dict], user_api_key: Optional[str] = None) -> BlogSummaryResult:
+async def generate_daily_summary_service(words: List[dict], user_api_key: Optional[str] = None, config_overrides: Optional[dict] = None) -> BlogSummaryResult:
     """用 AI 结合 Google 搜索对当天的单词及来源链接进行串联总结 (结构化输出)"""
-    model = DEFAULT_MODEL
+    model, thinking_level = resolve_feature_config('daily_summary', config_overrides)
     client = get_client(user_api_key)
 
     def extract_lookup(data) -> dict:
@@ -644,7 +706,7 @@ async def generate_daily_summary_service(words: List[dict], user_api_key: Option
                 tools=[types.Tool(google_search=types.GoogleSearch())],
                 response_mime_type="application/json",
                 response_schema=BlogSummaryResult,
-                thinking_config=types.ThinkingConfig(thinking_level='low'), 
+                thinking_config=types.ThinkingConfig(thinking_level=thinking_level),
             )
         )
         if response.parsed:
@@ -664,9 +726,9 @@ async def generate_daily_summary_service(words: List[dict], user_api_key: Option
             content=f"错误详情: {str(e)}\n\n{words_info}"
         )
 
-async def generate_review_article_service(words: List[dict], user_api_key: Optional[str] = None) -> ReviewArticle:
+async def generate_review_article_service(words: List[dict], user_api_key: Optional[str] = None, config_overrides: Optional[dict] = None) -> ReviewArticle:
     """为 FSRS 复习模式生成每日趣味文章 (播客、辩论、采访、博客等)"""
-    model = DEFAULT_MODEL
+    model, thinking_level = resolve_feature_config('review_article', config_overrides)
     client = get_client(user_api_key)
 
     def extract_lookup(data) -> dict:
@@ -741,7 +803,7 @@ async def generate_review_article_service(words: List[dict], user_api_key: Optio
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema=ReviewArticle,
-                thinking_config=types.ThinkingConfig(thinking_level='low'), 
+                thinking_config=types.ThinkingConfig(thinking_level=thinking_level),
             )
         )
         if response.parsed:
