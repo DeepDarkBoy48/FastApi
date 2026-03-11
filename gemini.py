@@ -459,6 +459,11 @@ async def quick_lookup_service(word: str, context: str, user_api_key: Optional[s
     4. **explanation**: 结合语境进行地道翻译与深度解析。
        - **全文翻译(必须)**: 首先给出整个原句的地道、口语化的中文翻译。
        - **用法解析**: 简要解释单词为什么是这个意思及其在句中的具体用法细节（如：是并列结构吗？指代什么？）。
+       - 如果当前词**不是原型**，必须明确补充：
+         - 这个词的原型是什么；
+         - 当前用了什么词形/形式（如过去式、过去分词、现在分词、第三人称单数、名词复数、比较级、最高级等）；
+         - 为什么这里要用这个形式，它在句中具体表达什么。
+       - 如果当前词就是原型，则不需要专门解释词形变化。
        - 如果涉及固定搭配（如 "upload...to..."），请务必指出来。
        - 结合上下文背景，说明该词传达的语气或具体指代的对象。
     5. **baseForm**: 给出这个词的原型/词典原形。
@@ -477,7 +482,7 @@ async def quick_lookup_service(word: str, context: str, user_api_key: Optional[s
       "contextMeaning": "素材，视频剪辑",
       "partOfSpeech": "n.",
       "grammarRole": "宾语 (与 upload 构成动宾短语)",
-      "explanation": "【句子翻译】在这个句子中意为：‘将你的视频素材上传到 YouTube’。\\n\\n【解析】这里 'footage' 指的是拍摄好的视频素材。固定搭配 'upload your footage to YouTube' 展示了其在数字媒体语境下的典型用法，特指已完成拍摄、准备进行后期制作或直接上传的视频内容。",
+      "explanation": "【全文翻译】在这个句子中意为：‘将你的视频素材上传到 YouTube’。\\n\\n【用法解析】这里 'footage' 指的是拍摄好的视频素材。固定搭配 'upload your footage to YouTube' 展示了其在数字媒体语境下的典型用法，特指已完成拍摄、准备进行后期制作或直接上传的视频内容。",
       "baseForm": "footage",
       "otherMeanings": [
         {{ "meaning": "英尺长度", "partOfSpeech": "n.", "example": "The room has a lot of square footage." }}
