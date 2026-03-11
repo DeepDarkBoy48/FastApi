@@ -461,7 +461,14 @@ async def quick_lookup_service(word: str, context: str, user_api_key: Optional[s
        - **用法解析**: 简要解释单词为什么是这个意思及其在句中的具体用法细节（如：是并列结构吗？指代什么？）。
        - 如果涉及固定搭配（如 "upload...to..."），请务必指出来。
        - 结合上下文背景，说明该词传达的语气或具体指代的对象。
-    5. **otherMeanings**: 提供该单词的**其他常见且高频**的释义。
+    5. **baseForm**: 给出这个词的原型/词典原形。
+       - 例如：drowning -> drown, better -> good, children -> child。
+       - 如果当前词本身就是原型，也要直接返回它自己。
+    6. **otherForms**: 给出这个词其他常见变形。
+       - 只保留常见、学习价值高的词形变化，2-6 个即可。
+       - 优先返回时态、单复数、分词、比较级/最高级等常用形式。
+       - 不要包含当前输入词本身；不要返回生僻派生词。
+    7. **otherMeanings**: 提供该单词的**其他常见且高频**的释义。
        - **过滤规则**: 严禁提供生僻、古僻、过于专业或罕见的释义。只保留在中高考、雅思、托福或日常口语中常见的 2-3 个其他意思。
        - 每个意思需包含 `meaning` (中文释义)、`partOfSpeech` (词性) 以及一个简短的英文例句 `example`。
     
@@ -475,6 +482,8 @@ async def quick_lookup_service(word: str, context: str, user_api_key: Optional[s
       "partOfSpeech": "n.",
       "grammarRole": "宾语 (与 upload 构成动宾短语)",
       "explanation": "【句子翻译】在这个句子中意为：‘将你的视频素材上传到 YouTube’。\\n\\n【解析】这里 'footage' 指的是拍摄好的视频素材。固定搭配 'upload your footage to YouTube' 展示了其在数字媒体语境下的典型用法，特指已完成拍摄、准备进行后期制作或直接上传的视频内容。",
+      "baseForm": "footage",
+      "otherForms": [],
       "otherMeanings": [
         {{ "meaning": "英尺长度", "partOfSpeech": "n.", "example": "The room has a lot of square footage." }}
       ]

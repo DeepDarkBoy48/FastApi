@@ -126,6 +126,8 @@ class QuickLookupResult(BaseModel):
     partOfSpeech: str = Field(description="The part of speech abbreviation (e.g., 'n.', 'v.', 'adj.'), in Simplified Chinese")
     grammarRole: str = Field(description="The grammatical role of the word in the sentence (e.g., 'Subject', 'Object', 'Fixed collocation'), in Simplified Chinese")
     explanation: str = Field(description="Explanation of why this meaning applies in the context, in Simplified Chinese")
+    baseForm: Optional[str] = Field(default="", description="The lemma or dictionary/base form of the word")
+    otherForms: Optional[List[str]] = Field(default=[], description="Other common inflected or derived forms of the word")
     otherMeanings: Optional[List[OtherMeaning]] = Field(default=[], description="Other common and high-frequency meanings of the word")
 
 

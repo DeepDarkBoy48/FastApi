@@ -79,12 +79,17 @@ def build_lookup_payload(word: str, data: dict) -> dict:
     other = safe.get("otherMeanings")
     if not isinstance(other, list):
         other = []
+    other_forms = safe.get("otherForms")
+    if not isinstance(other_forms, list):
+        other_forms = []
     return {
         "word": safe.get("word") or word,
         "contextMeaning": safe.get("contextMeaning") or safe.get("m") or "",
         "partOfSpeech": safe.get("partOfSpeech") or safe.get("p") or "",
         "grammarRole": safe.get("grammarRole") or "",
         "explanation": safe.get("explanation") or "",
+        "baseForm": safe.get("baseForm") or "",
+        "otherForms": other_forms,
         "otherMeanings": other,
     }
 
@@ -93,7 +98,7 @@ def strip_compat_fields(payload: dict) -> dict:
     cleaned = dict(payload)
     for field in (
         "context", "url", "note_id", "reading_id", "video_id",
-        "word", "contextMeaning", "partOfSpeech", "grammarRole", "explanation", "otherMeanings",
+        "word", "contextMeaning", "partOfSpeech", "grammarRole", "explanation", "baseForm", "otherForms", "otherMeanings",
         "m", "p"
     ):
         cleaned.pop(field, None)

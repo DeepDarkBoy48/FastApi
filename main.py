@@ -128,12 +128,17 @@ def build_lookup_payload(word: str, data: Optional[dict]) -> dict:
     other_meanings = safe_data.get('otherMeanings')
     if not isinstance(other_meanings, list):
         other_meanings = []
+    other_forms = safe_data.get('otherForms')
+    if not isinstance(other_forms, list):
+        other_forms = []
     return {
         "word": safe_data.get('word') or word,
         "contextMeaning": safe_data.get('contextMeaning') or safe_data.get('m') or "",
         "partOfSpeech": safe_data.get('partOfSpeech') or safe_data.get('p') or "",
         "grammarRole": safe_data.get('grammarRole') or "",
         "explanation": safe_data.get('explanation') or "",
+        "baseForm": safe_data.get('baseForm') or "",
+        "otherForms": other_forms,
         "otherMeanings": other_meanings
     }
 
@@ -179,7 +184,7 @@ def strip_legacy_payload_fields(payload: dict) -> dict:
     cleaned = dict(payload)
     for field in (
         'context', 'url', 'note_id', 'reading_id', 'video_id',
-        'word', 'contextMeaning', 'partOfSpeech', 'grammarRole', 'explanation', 'otherMeanings',
+        'word', 'contextMeaning', 'partOfSpeech', 'grammarRole', 'explanation', 'baseForm', 'otherForms', 'otherMeanings',
         'm', 'p'
     ):
         cleaned.pop(field, None)
