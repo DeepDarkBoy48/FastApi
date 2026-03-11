@@ -132,7 +132,7 @@ class QuickLookupResult(BaseModel):
     grammarRole: str = Field(description="The grammatical role of the word in the sentence (e.g., 'Subject', 'Object', 'Fixed collocation'), in Simplified Chinese")
     explanation: str = Field(description="Explanation of why this meaning applies in the context, in Simplified Chinese")
     baseForm: Optional[str] = Field(default="", description="The lemma or dictionary/base form of the word")
-    otherForms: Optional[List[OtherForm]] = Field(default=[], description="Other common forms with POS and concise meaning")
+    otherForms: Optional[List[OtherForm]] = Field(default=[], description="Deprecated compatibility field. Keep empty and use baseForm only.")
     otherMeanings: Optional[List[OtherMeaning]] = Field(default=[], description="Other common and high-frequency meanings of the word")
 
 

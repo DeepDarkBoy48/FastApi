@@ -157,7 +157,6 @@ def build_lookup_payload(word: str, data: Optional[dict]) -> dict:
     other_meanings = safe_data.get('otherMeanings')
     if not isinstance(other_meanings, list):
         other_meanings = []
-    other_forms = normalize_other_forms(safe_data.get('otherForms'))
     return {
         "word": safe_data.get('word') or word,
         "contextMeaning": safe_data.get('contextMeaning') or safe_data.get('m') or "",
@@ -165,7 +164,7 @@ def build_lookup_payload(word: str, data: Optional[dict]) -> dict:
         "grammarRole": safe_data.get('grammarRole') or "",
         "explanation": safe_data.get('explanation') or "",
         "baseForm": safe_data.get('baseForm') or "",
-        "otherForms": other_forms,
+        "otherForms": [],
         "otherMeanings": other_meanings
     }
 
