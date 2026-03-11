@@ -465,6 +465,7 @@ async def quick_lookup_service(word: str, context: str, user_api_key: Optional[s
        - 例如：drowning -> drown, better -> good, children -> child。
        - 如果当前词本身就是原型，也要直接返回它自己。
     6. **otherForms**: 给出这个词其他常见变形。
+       - 每个变形必须是对象，包含：`form` (词形), `partOfSpeech` (词性缩写), `meaning` (简体中文释义)。
        - 只保留常见、学习价值高的词形变化，2-6 个即可。
        - 优先返回时态、单复数、分词、比较级/最高级等常用形式。
        - 不要包含当前输入词本身；不要返回生僻派生词。
@@ -483,7 +484,9 @@ async def quick_lookup_service(word: str, context: str, user_api_key: Optional[s
       "grammarRole": "宾语 (与 upload 构成动宾短语)",
       "explanation": "【句子翻译】在这个句子中意为：‘将你的视频素材上传到 YouTube’。\\n\\n【解析】这里 'footage' 指的是拍摄好的视频素材。固定搭配 'upload your footage to YouTube' 展示了其在数字媒体语境下的典型用法，特指已完成拍摄、准备进行后期制作或直接上传的视频内容。",
       "baseForm": "footage",
-      "otherForms": [],
+      "otherForms": [
+        {{ "form": "footages", "partOfSpeech": "n.", "meaning": "（较少见）多段视频素材" }}
+      ],
       "otherMeanings": [
         {{ "meaning": "英尺长度", "partOfSpeech": "n.", "example": "The room has a lot of square footage." }}
       ]

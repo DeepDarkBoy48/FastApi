@@ -119,6 +119,11 @@ class OtherMeaning(BaseModel):
     partOfSpeech: str = Field(description="POS for this meaning")
     example: Optional[str] = Field(default="", description="A concise English example sentence for this meaning")
 
+class OtherForm(BaseModel):
+    form: str = Field(description="A common inflected or derived form of the target word")
+    partOfSpeech: str = Field(description="POS for this form, in concise notation like 'v.' 'n.' 'adj.'")
+    meaning: str = Field(description="Concise Simplified Chinese meaning for this form in common usage")
+
 
 class QuickLookupResult(BaseModel):
     word: str = Field(description="The word being looked up")
@@ -127,7 +132,7 @@ class QuickLookupResult(BaseModel):
     grammarRole: str = Field(description="The grammatical role of the word in the sentence (e.g., 'Subject', 'Object', 'Fixed collocation'), in Simplified Chinese")
     explanation: str = Field(description="Explanation of why this meaning applies in the context, in Simplified Chinese")
     baseForm: Optional[str] = Field(default="", description="The lemma or dictionary/base form of the word")
-    otherForms: Optional[List[str]] = Field(default=[], description="Other common inflected or derived forms of the word")
+    otherForms: Optional[List[OtherForm]] = Field(default=[], description="Other common forms with POS and concise meaning")
     otherMeanings: Optional[List[OtherMeaning]] = Field(default=[], description="Other common and high-frequency meanings of the word")
 
 

@@ -73,15 +73,42 @@ def build_encounter_key(word: str, source_key: str, context: str) -> str:
     raw = f"{normalize_word(word)}|{source_key}|{normalize_context(context)}"
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:24]
 
+def normalize_other_forms(raw_forms) -> list[dict]:
+    if not isinstance(raw_forms, list):
+        return []
+    normalized = []
+    seen = set()
+    for item in raw_forms:
+        if isinstance(item, str):
+            form = item.strip()
+            part_of_speech = ""
+            meaning = ""
+        elif isinstance(item, dict):
+            form = str(item.get("form") or item.get("text") or "").strip()
+            part_of_speech = str(item.get("partOfSpeech") or item.get("part_of_speech") or "").strip()
+            meaning = str(item.get("meaning") or "").strip()
+        else:
+            continue
+        if not form:
+            continue
+        form_key = form.lower()
+        if form_key in seen:
+            continue
+        seen.add(form_key)
+        normalized.append({
+            "form": form,
+            "partOfSpeech": part_of_speech,
+            "meaning": meaning,
+        })
+    return normalized
+
 
 def build_lookup_payload(word: str, data: dict) -> dict:
     safe = data if isinstance(data, dict) else {}
     other = safe.get("otherMeanings")
     if not isinstance(other, list):
         other = []
-    other_forms = safe.get("otherForms")
-    if not isinstance(other_forms, list):
-        other_forms = []
+    other_forms = normalize_other_forms(safe.get("otherForms"))
     return {
         "word": safe.get("word") or word,
         "contextMeaning": safe.get("contextMeaning") or safe.get("m") or "",

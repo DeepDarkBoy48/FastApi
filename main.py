@@ -122,15 +122,42 @@ def build_encounter_key(word: str, source_key: str, context: str) -> str:
     raw = f"{normalize_word(word)}|{source_key}|{normalize_context(context)}"
     return hashlib.sha1(raw.encode('utf-8')).hexdigest()[:24]
 
+def normalize_other_forms(raw_forms) -> List[dict]:
+    if not isinstance(raw_forms, list):
+        return []
+    normalized = []
+    seen = set()
+    for item in raw_forms:
+        if isinstance(item, str):
+            form = item.strip()
+            part_of_speech = ""
+            meaning = ""
+        elif isinstance(item, dict):
+            form = str(item.get('form') or item.get('text') or "").strip()
+            part_of_speech = str(item.get('partOfSpeech') or item.get('part_of_speech') or "").strip()
+            meaning = str(item.get('meaning') or "").strip()
+        else:
+            continue
+        if not form:
+            continue
+        form_key = form.lower()
+        if form_key in seen:
+            continue
+        seen.add(form_key)
+        normalized.append({
+            "form": form,
+            "partOfSpeech": part_of_speech,
+            "meaning": meaning
+        })
+    return normalized
+
 
 def build_lookup_payload(word: str, data: Optional[dict]) -> dict:
     safe_data = data if isinstance(data, dict) else {}
     other_meanings = safe_data.get('otherMeanings')
     if not isinstance(other_meanings, list):
         other_meanings = []
-    other_forms = safe_data.get('otherForms')
-    if not isinstance(other_forms, list):
-        other_forms = []
+    other_forms = normalize_other_forms(safe_data.get('otherForms'))
     return {
         "word": safe_data.get('word') or word,
         "contextMeaning": safe_data.get('contextMeaning') or safe_data.get('m') or "",
@@ -956,6 +983,8 @@ async def import_saved_words(request: SavedWordsImportRequest):
                             "partOfSpeech": "",
                             "grammarRole": "",
                             "explanation": "",
+                            "baseForm": "",
+                            "otherForms": [],
                             "otherMeanings": []
                         }
 
